@@ -5,7 +5,11 @@ dodecahedron and check the fit:
 - no two parts overlap,
 - every pair of plates sharing an edge touches across the whole bevel.
 
-    ../.venv/bin/python dodecahedron.py v0.0.3   # writes v0.0.3/dodecahedron.3mf
+    ../.venv/bin/python dodecahedron.py v0.0.3          # fit checks, then 3MFs
+    ../.venv/bin/python dodecahedron.py v0.0.3 --quick  # 3MFs only
+
+writes v0.0.3/dodecahedron.3mf (joined) and dodecahedron_exploded.3mf
+(upper cup lifted 30mm), with the plates coloured by cup.
 
 The dodecahedron stands on one face (base) and is read as two cups of
 six faces: base + the 5 faces around it, and top + the 5 around it.
@@ -116,8 +120,14 @@ def apply(m, tris):
     return (flat @ m[:3, :3].T + m[:3, 3]).reshape(tris.shape)
 
 
+LOWER_PLATE_COLOR = "#F28C28FF"
+UPPER_PLATE_COLOR = "#3FA34DFF"
+EXPLODE_MM = 30.0
+
+
 def main():
     version = sys.argv[1]
+    quick = "--quick" in sys.argv
     plate_step = f"../3d/pentagon/{version}/lcd_pentagon_plate.step"
     plate_stl = f"../3d/pentagon/{version}/lcd_pentagon_plate.stl"
     os.makedirs(version, exist_ok=True)
@@ -132,7 +142,26 @@ def main():
         names.append(role if role in ("base", "top") else f"{role} {counts[role]}")
     print("faces:", ", ".join(names))
     transforms = [plate_to_face(c, n, v) for c, n, v, _ in faces]
+    cup = ["lower" if r in ("base", "lower") else "upper" for r in roles]
 
+    if not quick:
+        run_fit_checks(plate_step, faces, transforms)
+
+    plate_tris = mesh.Mesh.from_file(plate_stl).vectors.astype(np.float64)
+    from overlay_stl import display_triangles
+
+    disp_tris = apply(DISPLAY_TO_PLATE, display_triangles())
+    for exploded in (False, True):
+        parts = []
+        for name, m, c in zip(names, transforms, cup):
+            lift = np.array([0.0, 0.0, EXPLODE_MM if (exploded and c == "upper") else 0.0])
+            color = LOWER_PLATE_COLOR if c == "lower" else UPPER_PLATE_COLOR
+            parts.append((f"{c} cup: plate {name}", color, apply(m, plate_tris) + lift))
+            parts.append((f"{c} cup: display {name}", DISPLAY_COLOR, apply(m, disp_tris) + lift))
+        write_3mf(f"{version}/dodecahedron{'_exploded' if exploded else ''}.3mf", parts)
+
+
+def run_fit_checks(plate_step, faces, transforms):
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
@@ -203,16 +232,6 @@ def main():
         print(f"shared bevel area per edge: min {min(areas):.2f}, max {max(areas):.2f} mm2")
     finally:
         gmsh.finalize()
-
-    plate_tris = mesh.Mesh.from_file(plate_stl).vectors.astype(np.float64)
-    from overlay_stl import display_triangles
-
-    disp_tris = apply(DISPLAY_TO_PLATE, display_triangles())
-    parts = []
-    for name, m in zip(names, transforms):
-        parts.append((f"plate {name}", PLATE_COLOR, apply(m, plate_tris)))
-        parts.append((f"display {name}", DISPLAY_COLOR, apply(m, disp_tris)))
-    write_3mf(f"{version}/dodecahedron.3mf", parts)
 
 
 if __name__ == "__main__":
