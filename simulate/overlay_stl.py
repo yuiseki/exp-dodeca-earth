@@ -9,8 +9,10 @@ display STEP), with the brass standoffs and the connector passing
 through it.
 
 Run from simulate/ with the project venv (deps in requirements.txt):
-    ../.venv/bin/python overlay_stl.py
+    ../.venv/bin/python overlay_stl.py v0.0.2
 """
+import os
+import sys
 import zipfile
 from collections import Counter
 
@@ -18,13 +20,10 @@ import gmsh
 import numpy as np
 from stl import mesh
 
-PLATE_STL = "../3d/pentagon/v0.0.1/lcd_pentagon_plate.stl"
 DISPLAY_STEP = (
     "../3d/display/1.28inch_LCD_Module_3D_Drawing/"
     "1.28inch LCD Module 3D Drawing/0508.stp"
 )
-OUT = "v0.0.1/overlay.stl"
-OUT_3MF = "v0.0.1/overlay.3mf"
 PLATE_COLOR = "#F28C28FF"
 DISPLAY_COLOR = "#1F5FBFFF"
 
@@ -112,11 +111,17 @@ def write_3mf(path, parts):
 
 
 def main():
+    version = sys.argv[1]
+    os.makedirs(version, exist_ok=True)
+    plate_stl = f"../3d/pentagon/{version}/lcd_pentagon_plate.stl"
+    out_stl = f"{version}/overlay.stl"
+    out_3mf = f"{version}/overlay.3mf"
+
     disp = display_triangles()
     x, y, z = disp[..., 0].copy(), disp[..., 1].copy(), disp[..., 2].copy()
     disp[..., 0], disp[..., 1], disp[..., 2] = y, -x, z
 
-    plate = mesh.Mesh.from_file(PLATE_STL).vectors.astype(np.float64)
+    plate = mesh.Mesh.from_file(plate_stl).vectors.astype(np.float64)
     plate[..., 2] += PCB_BACK_Z
 
     for name, v in (("display", disp), ("plate", plate)):
@@ -125,10 +130,10 @@ def main():
     tris = np.concatenate([disp, plate])
     out = mesh.Mesh(np.zeros(len(tris), dtype=mesh.Mesh.dtype))
     out.vectors = tris
-    out.save(OUT)
-    print(f"wrote {OUT} ({len(tris)} triangles)")
+    out.save(out_stl)
+    print(f"wrote {out_stl} ({len(tris)} triangles)")
 
-    write_3mf(OUT_3MF, [("plate", PLATE_COLOR, plate), ("display", DISPLAY_COLOR, disp)])
+    write_3mf(out_3mf, [("plate", PLATE_COLOR, plate), ("display", DISPLAY_COLOR, disp)])
 
 
 if __name__ == "__main__":
