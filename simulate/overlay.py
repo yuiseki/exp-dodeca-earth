@@ -42,16 +42,27 @@ def bbox(points):
 
 
 def plate_outline_and_slots(ents):
-    """The plate's cap face has the most loops: the outline, 4 holes and
-    the slot. The outline is the widest loop; anything else wider than
-    a hole is a slot."""
-    faces = [e for e, (t, _) in ents.items() if t == "ADVANCED_FACE"]
-    cap = max(faces, key=lambda f: len(face_bounds(ents, f)))
-    loops = [[(p[0], p[1]) for p in trace_loop(ents, b)] for b in face_bounds(ents, cap)]
+    """The plate's two cap faces have the most loops: the outline, 4
+    holes and the slot. The outline is the widest loop; anything else
+    wider than a hole is a slot. Returns the outer (larger) cap's outline
+    and slots, and the inner cap's outline, which is smaller once the
+    sides are bevelled."""
     width = lambda loop: bbox(loop)[1] - bbox(loop)[0]
-    outline = max(loops, key=width)
+    faces = [e for e, (t, _) in ents.items() if t == "ADVANCED_FACE"]
+    most = max(len(face_bounds(ents, f)) for f in faces)
+    caps = []
+    for f in faces:
+        if len(face_bounds(ents, f)) == most:
+            loops = [[(p[0], p[1]) for p in trace_loop(ents, b)] for b in face_bounds(ents, f)]
+            caps.append((max(loops, key=width), loops))
+    caps.sort(key=lambda c: -width(c[0]))
+    (outline, loops), (inner, _) = caps[0], caps[-1]
     slots = [loop for loop in loops if loop is not outline and width(loop) > 5]
-    return outline, slots
+    return outline, inner, slots
+
+
+def width_of(points):
+    return bbox(points)[1] - bbox(points)[0]
 
 
 def closed(points):
@@ -79,10 +90,12 @@ def main():
     pent_holes = sorted(
         {(round(c["center"][0], 3), round(c["center"][1], 3)) for c in get_circles(pent_ents) if round(c["radius"], 2) == 1.9}
     )
-    outline, slots = plate_outline_and_slots(pent_ents)
+    outline, inner, slots = plate_outline_and_slots(pent_ents)
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.plot(*zip(*closed(outline)), "k-", lw=1.5, label="pentagon plate outline")
+    if width_of(inner) < width_of(outline) - 1e-6:
+        ax.plot(*zip(*closed(inner)), "k--", lw=1, label="inner face outline (bevel)")
     for i, slot in enumerate(slots):
         ax.fill(*zip(*slot), color="tab:green", alpha=0.25)
         ax.plot(*zip(*closed(slot)), color="tab:green", lw=1.3, label="pentagon connector slot" if i == 0 else None)
