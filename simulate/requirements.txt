@@ -1,0 +1,4 @@
+gmsh
+matplotlib
+numpy
+numpy-stl
