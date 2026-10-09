@@ -123,7 +123,7 @@ def main():
     axes[0].legend(loc="lower left", fontsize=7)
     fig.suptitle("pentagon plate vs 1.28in LCD\n(display rotated -90 deg into plate frame)")
     fig.tight_layout()
-    out = "overlay.png"
+    out = "v0.0.1/overlay.png"
     fig.savefig(out, dpi=150)
     print(f"\nwrote {out}")
 
