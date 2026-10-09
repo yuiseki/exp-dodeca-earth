@@ -1,0 +1,11 @@
+ring,lower plate,lower pocket (seen from the inner face with the apex up),pole facing the joint (lower),upper plate,upper pocket (seen from the inner face with the apex up),pole facing the joint (upper)
+0,lower 1,apex edge right side,N,upper 1,right corner,S
+1,lower 1,apex edge left side,N,upper 3,left corner,S
+2,lower 3,apex edge right side,N,upper 3,right corner,S
+3,lower 3,apex edge left side,N,upper 5,left corner,S
+4,lower 5,apex edge right side,N,upper 5,right corner,S
+5,lower 5,apex edge left side,S,upper 4,left corner,N
+6,lower 4,apex edge right side,S,upper 4,right corner,N
+7,lower 4,apex edge left side,N,upper 2,left corner,S
+8,lower 2,apex edge right side,S,upper 2,right corner,N
+9,lower 2,apex edge left side,S,upper 1,left corner,N

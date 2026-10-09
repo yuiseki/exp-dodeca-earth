@@ -21,6 +21,7 @@ the fit: every display lies inside its own face's pyramid, so any turn
 is collision-free.
 """
 import itertools
+import json
 import math
 import os
 import sys
@@ -120,16 +121,88 @@ def apply(m, tris):
     return (flat @ m[:3, :3].T + m[:3, 3]).reshape(tris.shape)
 
 
+# Pole each lower-cup magnet shows at the joint, going round the ring of
+# ten rim magnets by azimuth; the upper cup shows the opposite pole. Found by
+# brute force: every wrong 72 deg turn then repels with net force -2 (two
+# magnet pairs' worth) against +10 for the right fit.
+POLE_PATTERN = "NNNNNSSNSS"
+MAGNET_COLOR = {"N": "#D62728FF", "S": "#F2F2F2FF"}
 LOWER_PLATE_COLOR = "#F28C28FF"
 UPPER_PLATE_COLOR = "#3FA34DFF"
 EXPLODE_MM = 30.0
 
 
+def plate_files(version, roles):
+    """Per-face STEP/STL paths: v0.0.4 has lower/upper/cap plates, earlier versions one."""
+    d = f"../3d/pentagon/{version}"
+    if os.path.exists(f"{d}/lcd_pentagon_plate_lower.step"):
+        kind = {"base": "cap", "top": "cap", "lower": "lower", "upper": "upper"}
+        return [(f"{d}/lcd_pentagon_plate_{kind[r]}.step", f"{d}/lcd_pentagon_plate_{kind[r]}.stl", kind[r]) for r in roles]
+    return [(f"{d}/lcd_pentagon_plate.step", f"{d}/lcd_pentagon_plate.stl", "plain") for _ in roles]
+
+
+def cylinder_triangles(base, axis, diameter, segments=48):
+    """Closed, outward-wound cylinder from base along axis."""
+    a = axis / np.linalg.norm(axis)
+    u = np.cross(a, [1.0, 0.0, 0.0] if abs(a[0]) < 0.9 else [0.0, 1.0, 0.0])
+    u /= np.linalg.norm(u)
+    v = np.cross(a, u)
+    r = diameter / 2
+    ang = np.linspace(0, 2 * math.pi, segments, endpoint=False)
+    ring = np.array([r * (math.cos(t) * u + math.sin(t) * v) for t in ang])
+    bot, top = base + ring, base + axis + ring
+    cb, ct = base, base + axis
+    tris = []
+    for i in range(segments):
+        j = (i + 1) % segments
+        tris += [(bot[i], bot[j], top[j]), (bot[i], top[j], top[i]), (cb, bot[j], bot[i]), (ct, top[i], top[j])]
+    return np.array(tris)
+
+
+def world_magnets(role_kind, m, version):
+    path = f"../3d/pentagon/{version}/magnets_{role_kind}.json"
+    if role_kind not in ("lower", "upper") or not os.path.exists(path):
+        return []
+    out = []
+    for j in json.load(open(path)):
+        out.append({
+            "base": m[:3, :3] @ np.array(j["magnet_base"]) + m[:3, 3],
+            "axis": m[:3, :3] @ np.array(j["magnet_axis"]),
+            "face": m[:3, :3] @ np.array(j["face_center"]) + m[:3, 3],
+            "normal": m[:3, :3] @ np.array(j["normal"]),
+            "diameter": j["diameter"],
+            "toward": j["toward"],
+            "label": f"apex edge {j['toward']} side" if role_kind == "lower" else f"{j['vertex']} corner",
+        })
+    return out
+
+
+def pair_magnets(names, kinds, mags):
+    """Pair each lower-cup magnet with the upper-cup magnet it faces; number the
+    ten pairs by azimuth. Returns pairs with index, both magnets, and the offsets."""
+    lowers = [(i, k) for i, kd in enumerate(kinds) if kd == "lower" for k in range(len(mags[i]))]
+    uppers = [(i, k) for i, kd in enumerate(kinds) if kd == "upper" for k in range(len(mags[i]))]
+    pairs = []
+    for li, lk in lowers:
+        lm = mags[li][lk]
+        ui, uk = min(uppers, key=lambda q: np.linalg.norm(mags[q[0]][q[1]]["face"] - lm["face"]))
+        um = mags[ui][uk]
+        pairs.append({"lower": (li, lk), "upper": (ui, uk),
+                      "face_offset": float(np.linalg.norm(um["face"] - lm["face"])),
+                      "axis_dot": float(lm["normal"] @ um["normal"] / np.linalg.norm(lm["normal"]) / np.linalg.norm(um["normal"])),
+                      "gap": float(np.linalg.norm(um["base"] - lm["base"]))})
+    assert len({p["upper"] for p in pairs}) == len(pairs), "an upper magnet was paired twice"
+    pairs.sort(key=lambda p: math.atan2(mags[p["lower"][0]][p["lower"][1]]["face"][1], mags[p["lower"][0]][p["lower"][1]]["face"][0]))
+    for idx, p in enumerate(pairs):
+        p["ring"] = idx
+        p["pole_lower"] = POLE_PATTERN[idx]
+        p["pole_upper"] = "S" if POLE_PATTERN[idx] == "N" else "N"
+    return pairs
+
+
 def main():
     version = sys.argv[1]
     quick = "--quick" in sys.argv
-    plate_step = f"../3d/pentagon/{version}/lcd_pentagon_plate.step"
-    plate_stl = f"../3d/pentagon/{version}/lcd_pentagon_plate.stl"
     os.makedirs(version, exist_ok=True)
 
     placed = two_cups(dodecahedron_faces())
@@ -144,29 +217,59 @@ def main():
     transforms = [plate_to_face(c, n, v) for c, n, v, _ in faces]
     cup = ["lower" if r in ("base", "lower") else "upper" for r in roles]
 
-    if not quick:
-        run_fit_checks(plate_step, faces, transforms)
+    files = plate_files(version, roles)
+    kinds = [k for _, _, k in files]
+    mags = [world_magnets(k, m, version) for k, m in zip(kinds, transforms)]
+    pairs = pair_magnets(names, kinds, mags) if any(mags) else []
+    if pairs:
+        print(f"magnet pairs: {len(pairs)}; largest face offset {max(p['face_offset'] for p in pairs):.2e} mm; "
+              f"axes antiparallel to within {max(abs(p['axis_dot'] + 1) for p in pairs):.1e}; "
+              f"gap between facing magnets {min(p['gap'] for p in pairs):.3f}..{max(p['gap'] for p in pairs):.3f} mm")
 
-    plate_tris = mesh.Mesh.from_file(plate_stl).vectors.astype(np.float64)
+    if not quick:
+        run_fit_checks(files, faces, transforms, mags)
+
     from overlay_stl import display_triangles
 
     disp_tris = apply(DISPLAY_TO_PLATE, display_triangles())
+    plate_cache = {}
+    pole_of = {}
+    for p in pairs:
+        pole_of[p["lower"]] = p["pole_lower"]
+        pole_of[p["upper"]] = p["pole_upper"]
     for exploded in (False, True):
         parts = []
-        for name, m, c in zip(names, transforms, cup):
+        for i, (name, m, c) in enumerate(zip(names, transforms, cup)):
             lift = np.array([0.0, 0.0, EXPLODE_MM if (exploded and c == "upper") else 0.0])
             color = LOWER_PLATE_COLOR if c == "lower" else UPPER_PLATE_COLOR
-            parts.append((f"{c} cup: plate {name}", color, apply(m, plate_tris) + lift))
+            stl = files[i][1]
+            if stl not in plate_cache:
+                plate_cache[stl] = mesh.Mesh.from_file(stl).vectors.astype(np.float64)
+            parts.append((f"{c} cup: plate {name}", color, apply(m, plate_cache[stl]) + lift))
             parts.append((f"{c} cup: display {name}", DISPLAY_COLOR, apply(m, disp_tris) + lift))
+            for k, mg in enumerate(mags[i]):
+                pole = pole_of[(i, k)]
+                ring = next(p["ring"] for p in pairs if (i, k) in (p["lower"], p["upper"]))
+                parts.append((f"{c} cup: magnet {name}, {mg['label']} (ring {ring}, {pole} at the joint)", MAGNET_COLOR[pole],
+                              cylinder_triangles(mg["base"], mg["axis"], mg["diameter"]) + lift))
         write_3mf(f"{version}/dodecahedron{'_exploded' if exploded else ''}.3mf", parts)
 
+    if pairs:
+        with open(f"{version}/magnets.csv", "w") as f:
+            f.write("ring,lower plate,lower pocket (seen from the inner face with the apex up),pole facing the joint (lower),"
+                    "upper plate,upper pocket (seen from the inner face with the apex up),pole facing the joint (upper)\n")
+            for p in sorted(pairs, key=lambda q: q["ring"]):
+                (li, lk), (ui, uk) = p["lower"], p["upper"]
+                f.write(f"{p['ring']},{names[li]},{mags[li][lk]['label']},{p['pole_lower']},{names[ui]},{mags[ui][uk]['label']},{p['pole_upper']}\n")
+        print(f"wrote {version}/magnets.csv")
 
-def run_fit_checks(plate_step, faces, transforms):
+
+def run_fit_checks(files, faces, transforms, mags):
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         plates, displays = [], []
-        for m in transforms:
+        for (plate_step, _, _), m in zip(files, transforms):
             p = gmsh.model.occ.importShapes(plate_step)
             gmsh.model.occ.affineTransform(p, list(m[:3].ravel()))
             plates.append(p)
@@ -202,7 +305,16 @@ def run_fit_checks(plate_step, faces, transforms):
                 adjacent.add((i, j))
         print(f"adjacent face pairs: {len(adjacent)}")
 
-        worst = {"plate-plate": 0.0, "display-display": 0.0, "plate-display": 0.0}
+        magnet_solids = []
+        for i, ms in enumerate(mags):
+            for mg in ms:
+                magnet_solids.append((i, [(3, gmsh.model.occ.addCylinder(*mg["base"], *mg["axis"], mg["diameter"] / 2))]))
+        gmsh.model.occ.synchronize()
+
+        worst = {"plate-plate": 0.0, "display-display": 0.0, "plate-display": 0.0, "magnet-anything": 0.0}
+        for i, mg in magnet_solids:
+            for other in plates + displays + [mm for _, mm in magnet_solids if mm is not mg]:
+                worst["magnet-anything"] = max(worst["magnet-anything"], overlap(mg, other))
         for i, j in itertools.combinations(range(12), 2):
             worst["plate-plate"] = max(worst["plate-plate"], overlap(plates[i], plates[j]))
             worst["display-display"] = max(worst["display-display"], overlap(displays[i], displays[j]))
