@@ -7,8 +7,14 @@ dodecahedron and check the fit:
 
     ../.venv/bin/python dodecahedron.py v0.0.3   # writes v0.0.3/dodecahedron.3mf
 
-Which way each plate is turned within its face (where its apex points)
-is arbitrary here; it does not affect the fit.
+The dodecahedron stands on one face (base) and is read as two cups of
+six faces: base + the 5 faces around it, and top + the 5 around it.
+Each of those 10 side plates is turned so that the edge opposite its
+apex (next to the display's flat PCB tab) sits on the base or top, so
+its apex and connector point at the rim where the two cups meet. How
+base and top themselves are turned is arbitrary. None of this affects
+the fit: every display lies inside its own face's pyramid, so any turn
+is collision-free.
 """
 import itertools
 import math
@@ -51,6 +57,40 @@ def dodecahedron_faces():
     return faces
 
 
+def rotation_onto(a, b):
+    """Rotation matrix taking unit vector a onto unit vector b."""
+    v = np.cross(a, b)
+    c = float(a @ b)
+    if np.linalg.norm(v) < 1e-12:
+        return np.eye(3) if c > 0 else -np.eye(3)
+    k = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    return np.eye(3) + k + k @ k / (1 + c)
+
+
+def two_cups(faces):
+    """Stand the dodecahedron on a face and turn the side plates as
+    described above. Returns (role, center, normal, apex vertex, corners)."""
+    r = rotation_onto(faces[0][1], np.array([0.0, 0.0, -1.0]))
+    faces = [(r @ c, r @ n, r @ v, [r @ t for t in top]) for c, n, v, top in faces]
+    base = min(range(12), key=lambda i: faces[i][1][2])
+    top = max(range(12), key=lambda i: faces[i][1][2])
+    out = []
+    for i, (c, n, v, corners) in enumerate(faces):
+        if i in (base, top):
+            out.append(("base" if i == base else "top", c, n, v, corners))
+            continue
+        for j, role in ((base, "lower"), (top, "upper")):
+            shared = [a for a in corners if any(np.linalg.norm(a - b) < 1e-6 for b in faces[j][3])]
+            if len(shared) == 2:
+                mid = (shared[0] + shared[1]) / 2
+                apex = max(corners, key=lambda a: np.linalg.norm(a - mid))
+                out.append((role, c, n, apex, corners))
+                break
+        else:
+            raise AssertionError(f"face {i} touches neither base nor top")
+    return out
+
+
 def plate_to_face(center, normal, vertex):
     """4x4 transform from plate-local coords (outer face z=0, outward -z)
     onto a face: plate center -> face center, apex -> the given vertex."""
@@ -82,7 +122,15 @@ def main():
     plate_stl = f"../3d/pentagon/{version}/lcd_pentagon_plate.stl"
     os.makedirs(version, exist_ok=True)
 
-    faces = dodecahedron_faces()
+    placed = two_cups(dodecahedron_faces())
+    faces = [(c, n, v, corners) for _, c, n, v, corners in placed]
+    roles = [role for role, *_ in placed]
+    counts = {}
+    names = []
+    for role in roles:
+        counts[role] = counts.get(role, 0) + 1
+        names.append(role if role in ("base", "top") else f"{role} {counts[role]}")
+    print("faces:", ", ".join(names))
     transforms = [plate_to_face(c, n, v) for c, n, v, _ in faces]
 
     gmsh.initialize()
@@ -161,9 +209,9 @@ def main():
 
     disp_tris = apply(DISPLAY_TO_PLATE, display_triangles())
     parts = []
-    for k, m in enumerate(transforms):
-        parts.append((f"plate {k + 1}", PLATE_COLOR, apply(m, plate_tris)))
-        parts.append((f"display {k + 1}", DISPLAY_COLOR, apply(m, disp_tris)))
+    for name, m in zip(names, transforms):
+        parts.append((f"plate {name}", PLATE_COLOR, apply(m, plate_tris)))
+        parts.append((f"display {name}", DISPLAY_COLOR, apply(m, disp_tris)))
     write_3mf(f"{version}/dodecahedron.3mf", parts)
 
 
