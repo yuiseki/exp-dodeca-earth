@@ -42,7 +42,8 @@ def get_axis_placement(entities, ref):
     refdir_ref = int(parts[3].lstrip("#")) if parts[3].strip() != "$" else None
     loc = get_point(entities, loc_ref)
     axis = get_direction(entities, axis_ref) if axis_ref else (0, 0, 1)
-    return loc, axis
+    refdir = get_direction(entities, refdir_ref) if refdir_ref else (1, 0, 0)
+    return loc, axis, refdir
 
 
 def get_circles(entities):
@@ -53,6 +54,6 @@ def get_circles(entities):
         parts = [p.strip() for p in args.split(",")]
         axis_ref = int(parts[1].lstrip("#"))
         radius = float(parts[2])
-        loc, axis = get_axis_placement(entities, axis_ref)
-        circles.append({"id": eid, "center": loc, "axis": axis, "radius": radius})
+        loc, axis, refdir = get_axis_placement(entities, axis_ref)
+        circles.append({"id": eid, "center": loc, "axis": axis, "refdir": refdir, "radius": radius})
     return circles
