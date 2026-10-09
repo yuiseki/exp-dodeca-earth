@@ -1,10 +1,10 @@
-"""Build plate v0.0.2 from v0.0.1: extend the connector slot 3mm toward
+"""Build plate v0.0.2 from v0.0.1: extend the connector slot 2mm toward
 the pentagon's apex (+y) so there is room to plug the cable in.
 
-The slot goes from x=+-10.3, y=3.5..11.5 to x=+-10.3, y=3.5..14.5. It
+The slot goes from x=+-10.3, y=3.5..11.5 to x=+-10.3, y=3.5..13.5. It
 cannot grow sideways: the display's brass standoffs are 1.6mm from the
 connector's ends. At the new corners the wall to the plate edge is
-about 1.5mm.
+about 2.35mm.
 
 Run from this directory with the project venv:
     ../../../.venv/bin/python build.py
@@ -13,7 +13,7 @@ import gmsh
 
 SRC = "../v0.0.1/lcd_pentagon_plate.step"
 SLOT_X = (-10.3, 10.3)
-SLOT_Y = (3.5, 14.5)
+SLOT_Y = (3.5, 13.5)
 
 
 def main():
