@@ -135,6 +135,12 @@ EXPLODE_MM = 30.0
 def plate_files(version, roles):
     """Per-face STEP/STL paths: v0.0.4 has lower/upper/cap plates, earlier versions one."""
     d = f"../3d/pentagon/{version}"
+    if os.path.exists(f"{d}/lcd_pentagon_plate_side.step"):
+        out = []
+        for r in roles:
+            stem, kind = ("../3d/pentagon/v0.0.4/lcd_pentagon_plate_cap", "cap") if r in ("base", "top") else (f"{d}/lcd_pentagon_plate_side", "side")
+            out.append((stem + ".step", stem + ".stl", kind))
+        return out
     if os.path.exists(f"{d}/lcd_pentagon_plate_lower.step"):
         kind = {"base": "cap", "top": "cap", "lower": "lower", "upper": "upper"}
         return [(f"{d}/lcd_pentagon_plate_{kind[r]}.step", f"{d}/lcd_pentagon_plate_{kind[r]}.stl", kind[r]) for r in roles]
@@ -159,12 +165,19 @@ def cylinder_triangles(base, axis, diameter, segments=48):
     return np.array(tris)
 
 
-def world_magnets(role_kind, m, version):
-    path = f"../3d/pentagon/{version}/magnets_{role_kind}.json"
-    if role_kind not in ("lower", "upper") or not os.path.exists(path):
+def world_magnets(kind, role, m, version):
+    """Magnets installed in a plate: a lower/upper plate has its own pockets; the
+    common side plate has four, and the lower cup fills the apex pockets, the
+    upper cup the corner pockets."""
+    d = f"../3d/pentagon/{version}"
+    if kind == "side":
+        items = [j for j in json.load(open(f"{d}/magnets_side.json")) if (j["vertex"] == "apex") == (role == "lower")]
+    elif kind in ("lower", "upper") and os.path.exists(f"{d}/magnets_{kind}.json"):
+        items = json.load(open(f"{d}/magnets_{kind}.json"))
+    else:
         return []
     out = []
-    for j in json.load(open(path)):
+    for j in items:
         out.append({
             "base": m[:3, :3] @ np.array(j["magnet_base"]) + m[:3, 3],
             "axis": m[:3, :3] @ np.array(j["magnet_axis"]),
@@ -172,16 +185,17 @@ def world_magnets(role_kind, m, version):
             "normal": m[:3, :3] @ np.array(j["normal"]),
             "diameter": j["diameter"],
             "toward": j["toward"],
-            "label": f"apex edge {j['toward']} side" if role_kind == "lower" else f"{j['vertex']} corner",
+            "vertex": j["vertex"],
+            "label": f"apex edge {j['toward']} side" if role == "lower" else f"{j['vertex']} corner",
         })
     return out
 
 
-def pair_magnets(names, kinds, mags):
+def pair_magnets(names, roles, mags):
     """Pair each lower-cup magnet with the upper-cup magnet it faces; number the
     ten pairs by azimuth. Returns pairs with index, both magnets, and the offsets."""
-    lowers = [(i, k) for i, kd in enumerate(kinds) if kd == "lower" for k in range(len(mags[i]))]
-    uppers = [(i, k) for i, kd in enumerate(kinds) if kd == "upper" for k in range(len(mags[i]))]
+    lowers = [(i, k) for i, r in enumerate(roles) if r == "lower" for k in range(len(mags[i]))]
+    uppers = [(i, k) for i, r in enumerate(roles) if r == "upper" for k in range(len(mags[i]))]
     pairs = []
     for li, lk in lowers:
         lm = mags[li][lk]
@@ -198,6 +212,21 @@ def pair_magnets(names, kinds, mags):
         p["pole_lower"] = POLE_PATTERN[idx]
         p["pole_upper"] = "S" if POLE_PATTERN[idx] == "N" else "N"
     return pairs
+
+
+def swap_map(roles, transforms):
+    """For the common cup: index of the upper-cup plate that is each lower-cup plate turned
+    180 deg about a horizontal 2-fold axis (found by matching plate placements exactly)."""
+    low = [i for i, r in enumerate(roles) if r in ("base", "lower")]
+    up = [i for i, r in enumerate(roles) if r in ("top", "upper")]
+    for deg in np.arange(0, 180, 0.25):
+        a = np.array([math.cos(math.radians(deg)), math.sin(math.radians(deg)), 0.0])
+        r4 = np.eye(4)
+        r4[:3, :3] = 2 * np.outer(a, a) - np.eye(3)
+        match = {i: min(up, key=lambda j: np.abs(r4 @ transforms[i] - transforms[j]).max()) for i in low}
+        if all(np.abs(r4 @ transforms[i] - transforms[j]).max() < 1e-6 for i, j in match.items()):
+            return match, deg
+    raise AssertionError("the upper cup is not the lower cup turned over")
 
 
 def main():
@@ -219,8 +248,8 @@ def main():
 
     files = plate_files(version, roles)
     kinds = [k for _, _, k in files]
-    mags = [world_magnets(k, m, version) for k, m in zip(kinds, transforms)]
-    pairs = pair_magnets(names, kinds, mags) if any(mags) else []
+    mags = [world_magnets(k, r, m, version) for k, r, m in zip(kinds, roles, transforms)]
+    pairs = pair_magnets(names, roles, mags) if any(mags) else []
     if pairs:
         print(f"magnet pairs: {len(pairs)}; largest face offset {max(p['face_offset'] for p in pairs):.2e} mm; "
               f"axes antiparallel to within {max(abs(p['axis_dot'] + 1) for p in pairs):.1e}; "
@@ -262,6 +291,23 @@ def main():
                 (li, lk), (ui, uk) = p["lower"], p["upper"]
                 f.write(f"{p['ring']},{names[li]},{mags[li][lk]['label']},{p['pole_lower']},{names[ui]},{mags[ui][uk]['label']},{p['pole_upper']}\n")
         print(f"wrote {version}/magnets.csv")
+        if "side" in kinds:
+            match, deg = swap_map(roles, transforms)
+            order = sorted((i for i, r in enumerate(roles) if r == "lower"),
+                           key=lambda i: math.atan2(faces[i][0][1], faces[i][0][0]))
+            pole = {}
+            for p in pairs:
+                pole[p["lower"]] = (p["ring"], p["pole_lower"])
+                pole[p["upper"]] = (p["ring"], p["pole_upper"])
+            with open(f"{version}/magnets_by_cup.csv", "w") as f:
+                f.write("cup,plate (counter-clockwise seen from above, cup standing on its base),"
+                        "pocket (seen from the inner face with the apex up),pole facing the joint,pair\n")
+                for cup_name, pick in (("A (fill the apex pockets)", lambda i: i), ("B (fill the corner pockets)", lambda i: match[i])):
+                    for n, i in enumerate(order, 1):
+                        for k, mg in enumerate(mags[pick(i)]):
+                            ring, pl = pole[(pick(i), k)]
+                            f.write(f"{cup_name},{n},{mg['label']},{pl},{ring}\n")
+            print(f"wrote {version}/magnets_by_cup.csv (cup B = cup A turned 180 deg about the horizontal axis at {deg:.2f} deg)")
 
 
 def run_fit_checks(files, faces, transforms, mags):

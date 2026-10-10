@@ -1,20 +1,30 @@
-"""Build v0.0.5: each cup (6 faces) as one solid instead of 6 plates.
+"""Build v0.0.5: one cup, printed twice.
 
-The lower cup is the base plate plus the five lower side plates, the upper
-cup the top plate plus the five upper side plates, all taken from v0.0.4
-(same 2mm walls, bevels, display holes, slots, magnet bosses and pockets)
-and placed on the dodecahedron exactly as simulate/dodecahedron.py does.
-Fusing them removes the joints inside a cup, leaving a bowl.
+A cup is the base plate plus five side plates, fused into one solid. The
+upper cup of the dodecahedron is exactly the lower cup turned 180 deg about
+the x axis (checked plate by plate, matrix error 0), so one design serves
+both, as long as each side plate can mate whichever way it is placed.
 
-Each cup is written standing on its outer base (or top) face, opening up,
-which is also how it is printed: the side walls lean outward by 26.6 deg
-from vertical, which needs no support.
+On a rim edge the two plates meet with opposite ends, so a magnet pair
+needs a pocket at the same distance from the same end on both plates. So
+the side plate carries a pocket at both ends of each of its two rim edges
+(the v0.0.4 lower plate's apex pockets plus the v0.0.4 upper plate's corner
+pockets): 3 bosses, 4 pockets. Only 20 of the 40 pockets get a magnet: the
+lower cup gets them in its apex pockets, the upper cup in its corner
+pockets. The base plate is v0.0.4's cap.
+
+Writes lcd_pentagon_plate_side.step/.stl and magnets_side.json (via
+v0.0.4's build.py), and lcd_cup.step/.stl, the cup standing on its outer
+face, opening up, which is also how it is printed (the walls lean outward
+26.6 deg from vertical, so no support is needed).
 
 Run from this directory with the project venv:
     ../../../.venv/bin/python build.py
 """
+import importlib.util
 import os
 import sys
+from collections import Counter
 
 import gmsh
 import numpy as np
@@ -23,10 +33,13 @@ from stl import mesh
 sys.path.insert(0, "../../../simulate")
 import dodecahedron as dd
 
-V4 = "../v0.0.4"
+spec = importlib.util.spec_from_file_location("build_v004", "../v0.0.4/build.py")
+b4 = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(b4)
+
 FACE_DIST = 33.40533  # centre of the dodecahedron to a face, edge 30mm
-CUPS = {"lower": ("base", "lower"), "upper": ("top", "upper")}
-KIND = {"base": "cap", "top": "cap", "lower": "lower", "upper": "upper"}
+CAP = "../v0.0.4/lcd_pentagon_plate_cap"
+SIDE = "lcd_pentagon_plate_side"
 
 
 def place(tags, m):
@@ -45,11 +58,16 @@ def place(tags, m):
     gmsh.model.occ.translate(tags, *t)
 
 
-def build(cup):
+def build_side_plate():
+    b4.VARIANTS["side"] = [("apex", ["right", "left"]), ("right", ["apex"]), ("left", ["apex"])]
+    b4.build("side")
+
+
+def build_cup():
     placed = dd.two_cups(dd.dodecahedron_faces())
     roles = [r for r, *_ in placed]
     transforms = [dd.plate_to_face(c, n, v) for _, c, n, v, _ in placed]
-    members = [i for i, r in enumerate(roles) if r in CUPS[cup]]
+    members = [i for i, r in enumerate(roles) if r in ("base", "lower")]
     assert len(members) == 6, members
     gmsh.initialize()
     try:
@@ -57,48 +75,48 @@ def build(cup):
         occ = gmsh.model.occ
         parts, expect = [], 0.0
         for i in members:
-            tags = occ.importShapes(f"{V4}/lcd_pentagon_plate_{KIND[roles[i]]}.step")
+            tags = occ.importShapes((CAP if roles[i] == "base" else SIDE) + ".step")
             expect += sum(occ.getMass(d, t) for d, t in tags)
             place(tags, transforms[i])
             parts.append(tags)
         fused, _ = occ.fuse(parts[0], [t for p in parts[1:] for t in p])
         occ.synchronize()
-        # Stand on the outer face of the base (z=-FACE_DIST) or top (z=+FACE_DIST), opening up.
-        flip = np.eye(4) if cup == "lower" else np.diag([1.0, -1.0, -1.0, 1.0])
+        flip = np.eye(4)
         flip[2, 3] = FACE_DIST
         place(fused, flip)
         occ.synchronize()
         solids = gmsh.model.getEntities(3)
         vol = sum(occ.getMass(d, t) for d, t in solids)
-        x0, y0, z0, x1, y1, z1 = occ.getBoundingBox(*solids[0])
-        print(f"[{cup} cup] solids {len(solids)}, volume {vol:.1f} mm3 (6 plates sum to {expect:.1f}), "
-              f"size {x1 - x0:.2f} x {y1 - y0:.2f} x {z1 - z0:.2f} mm, z from {z0:.2f}")
+        print(f"[cup] solids {len(solids)}, volume {vol:.1f} mm3 (6 plates sum to {expect:.1f})")
         assert len(solids) == 1 and abs(vol - expect) < 1.0, "fusing changed the material"
-        gmsh.write(f"lcd_cup_{cup}.step")
+        gmsh.write("lcd_cup.step")
         gmsh.clear()
-        gmsh.model.occ.importShapes(f"lcd_cup_{cup}.step")
+        gmsh.model.occ.importShapes("lcd_cup.step")
         gmsh.model.occ.synchronize()
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 72)
         gmsh.option.setNumber("Mesh.MeshSizeMax", 2.0)
         gmsh.option.setNumber("Mesh.Binary", 1)
         gmsh.model.mesh.generate(2)
-        gmsh.write(f"lcd_cup_{cup}.stl")
+        gmsh.write("lcd_cup.stl")
     finally:
         gmsh.finalize()
 
 
+def report_stl(path):
+    m = mesh.Mesh.from_file(path)
+    v = m.vectors
+    k = lambda p: tuple(np.round(p, 5))
+    c = Counter()
+    for t in v:
+        a, b, d = k(t[0]), k(t[1]), k(t[2])
+        c.update(tuple(sorted(e)) for e in ((a, b), (b, d), (d, a)))
+    vol = float(np.einsum("ij,ij->i", v[:, 0], np.cross(v[:, 1], v[:, 2])).sum() / 6)
+    print(f"[{path}] {len(v)} triangles, open edges {sum(1 for n in c.values() if n != 2)}, volume {vol:.1f} mm3, "
+          f"size {np.round(m.max_ - m.min_, 2)}, file {os.path.getsize(path) / 1e6:.1f} MB")
+
+
 if __name__ == "__main__":
-    for cup in CUPS:
-        build(cup)
-    for cup in CUPS:
-        m = mesh.Mesh.from_file(f"lcd_cup_{cup}.stl")
-        v = m.vectors
-        k = lambda p: tuple(np.round(p, 5))
-        from collections import Counter
-        c = Counter()
-        for t in v:
-            a, b, d = k(t[0]), k(t[1]), k(t[2])
-            c.update(tuple(sorted(e)) for e in ((a, b), (b, d), (d, a)))
-        vol = float(np.einsum("ij,ij->i", v[:, 0], np.cross(v[:, 1], v[:, 2])).sum() / 6)
-        print(f"[{cup} cup STL] {len(v)} triangles, open edges {sum(1 for n in c.values() if n != 2)}, volume {vol:.1f} mm3, "
-              f"size {np.round(m.max_ - m.min_, 2)}, file {os.path.getsize(f'lcd_cup_{cup}.stl') / 1e6:.1f} MB")
+    build_side_plate()
+    build_cup()
+    report_stl("lcd_pentagon_plate_side.stl")
+    report_stl("lcd_cup.stl")
