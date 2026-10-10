@@ -9,9 +9,10 @@ On a rim edge the two plates meet with opposite ends, so a magnet pair
 needs a pocket at the same distance from the same end on both plates. So
 the side plate carries a pocket at both ends of each of its two rim edges
 (the v0.0.4 lower plate's apex pockets plus the v0.0.4 upper plate's corner
-pockets): 3 bosses, 4 pockets. Only 20 of the 40 pockets get a magnet: the
-lower cup gets them in its apex pockets, the upper cup in its corner
-pockets. The base plate is v0.0.4's cap.
+pockets): 3 bosses, 4 pockets. A magnet goes in every pocket, 20 per cup,
+and both cups are filled from the same table (simulate/dodecahedron.py
+finds poles that make the pairs oppose, and the four wrong 72 deg turns
+repel). The base plate is v0.0.4's cap.
 
 Writes lcd_pentagon_plate_side.step/.stl and magnets_side.json (via
 v0.0.4's build.py), and lcd_cup.step/.stl, the cup standing on its outer

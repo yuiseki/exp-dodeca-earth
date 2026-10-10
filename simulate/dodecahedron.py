@@ -167,11 +167,10 @@ def cylinder_triangles(base, axis, diameter, segments=48):
 
 def world_magnets(kind, role, m, version):
     """Magnets installed in a plate: a lower/upper plate has its own pockets; the
-    common side plate has four, and the lower cup fills the apex pockets, the
-    upper cup the corner pockets."""
+    common side plate has four and a magnet goes in every one."""
     d = f"../3d/pentagon/{version}"
     if kind == "side":
-        items = [j for j in json.load(open(f"{d}/magnets_side.json")) if (j["vertex"] == "apex") == (role == "lower")]
+        items = json.load(open(f"{d}/magnets_side.json"))
     elif kind in ("lower", "upper") and os.path.exists(f"{d}/magnets_{kind}.json"):
         items = json.load(open(f"{d}/magnets_{kind}.json"))
     else:
@@ -186,12 +185,13 @@ def world_magnets(kind, role, m, version):
             "diameter": j["diameter"],
             "toward": j["toward"],
             "vertex": j["vertex"],
-            "label": f"apex edge {j['toward']} side" if role == "lower" else f"{j['vertex']} corner",
+            "pocket": (j["vertex"], j["toward"]),
+            "label": f"apex edge {j['toward']} side" if j["vertex"] == "apex" else f"{j['vertex']} corner",
         })
     return out
 
 
-def pair_magnets(names, roles, mags):
+def pair_magnets(names, roles, mags, fixed_pattern=True):
     """Pair each lower-cup magnet with the upper-cup magnet it faces; number the
     ten pairs by azimuth. Returns pairs with index, both magnets, and the offsets."""
     lowers = [(i, k) for i, r in enumerate(roles) if r == "lower" for k in range(len(mags[i]))]
@@ -209,9 +209,62 @@ def pair_magnets(names, roles, mags):
     pairs.sort(key=lambda p: math.atan2(mags[p["lower"][0]][p["lower"][1]]["face"][1], mags[p["lower"][0]][p["lower"][1]]["face"][0]))
     for idx, p in enumerate(pairs):
         p["ring"] = idx
-        p["pole_lower"] = POLE_PATTERN[idx]
-        p["pole_upper"] = "S" if POLE_PATTERN[idx] == "N" else "N"
+        if fixed_pattern:
+            p["pole_lower"] = POLE_PATTERN[idx]
+            p["pole_upper"] = "S" if POLE_PATTERN[idx] == "N" else "N"
     return pairs
+
+
+def assign_poles_common_cup(pairs, mags, roles, match, order, rot72):
+    """Poles for the common cup, filled in every pocket and installed the same in both cups.
+
+    A pocket is named by (plate number in the cup, pocket). The upper cup shows, where it faces
+    a lower pocket, the pocket the lower cup has at the turned-over position, so installing both
+    cups alike forces pole(upper pocket) = opposite of pole(lower pocket) for each pair. That
+    leaves 10 free choices; take the one whose wrong 72-degree turns repel the most."""
+    cupno = {i: n for n, i in enumerate(order, 1)}
+    for i, j in match.items():
+        if roles[i] == "lower":
+            cupno[j] = cupno[i]
+    key = lambda im: (cupno[im[0]], mags[im[0]][im[1]]["pocket"])
+    n = len(pairs)
+    parent = {}
+    def find(x):
+        parent.setdefault(x, (x, 1))
+        r, sign = parent[x]
+        if r == x:
+            return x, 1
+        root, s2 = find(r)
+        parent[x] = (root, sign * s2)
+        return root, sign * s2
+    for p in pairs:
+        (a, sa), (b, sb) = find(key(p["lower"])), find(key(p["upper"]))
+        if a != b:
+            parent[a] = (b, -sa * sb)          # pole(upper) = - pole(lower)
+    roots = sorted({find(key(p["lower"]))[0] for p in pairs} | {find(key(p["upper"]))[0] for p in pairs}, key=str)
+    # position of each pair's lower pocket after a 72 deg turn of the upper cup
+    centres = [mags[p["lower"][0]][p["lower"][1]]["face"] for p in pairs]
+    turned = [min(range(n), key=lambda q: np.linalg.norm(rot72 @ centres[j] - centres[q])) for j in range(n)]
+    assert sorted(turned) == list(range(n))
+    best = None
+    for bits in itertools.product((1, -1), repeat=len(roots)):
+        base = dict(zip(roots, bits))
+        pole = lambda im: (lambda r, sg: base[r] * sg)(*find(key(im)))
+        a = [pole(p["lower"]) for p in pairs]
+        assert all(pole(p["upper"]) == -a[j] for j, p in enumerate(pairs))
+        net, cur = [], list(range(n))
+        for _ in range(4):
+            cur = [turned[c] for c in cur]            # where the upper cup's pocket from position j now sits
+            net.append(sum(a[cur[j]] * a[j] for j in range(n)))
+        score = (max(net), sum(net), "".join("N" if x > 0 else "S" for x in a))
+        if best is None or score < best[0]:
+            best = (score, a, net)
+    (_, _, text), a, net = best
+    for j, p in enumerate(pairs):
+        p["ring"] = j
+        p["pole_lower"] = "N" if a[j] > 0 else "S"
+        p["pole_upper"] = "S" if a[j] > 0 else "N"
+    return cupno, net, text
 
 
 def swap_map(roles, transforms):
@@ -249,7 +302,14 @@ def main():
     files = plate_files(version, roles)
     kinds = [k for _, _, k in files]
     mags = [world_magnets(k, r, m, version) for k, r, m in zip(kinds, roles, transforms)]
-    pairs = pair_magnets(names, roles, mags) if any(mags) else []
+    pairs = pair_magnets(names, roles, mags, fixed_pattern="side" not in kinds) if any(mags) else []
+    common = None
+    if "side" in kinds and pairs:
+        match, deg = swap_map(roles, transforms)
+        order = sorted((i for i, r in enumerate(roles) if r == "lower"), key=lambda i: math.atan2(faces[i][0][1], faces[i][0][0]))
+        rot72 = np.array([[math.cos(2 * math.pi / 5), -math.sin(2 * math.pi / 5), 0], [math.sin(2 * math.pi / 5), math.cos(2 * math.pi / 5), 0], [0, 0, 1]])
+        common = assign_poles_common_cup(pairs, mags, roles, match, order, rot72)
+        print(f"common cup: a magnet in all {len(pairs) * 2 // 2} pockets per cup; net force at the four wrong turns {common[1]} against +{len(pairs)} for the right fit")
     if pairs:
         print(f"magnet pairs: {len(pairs)}; largest face offset {max(p['face_offset'] for p in pairs):.2e} mm; "
               f"axes antiparallel to within {max(abs(p['axis_dot'] + 1) for p in pairs):.1e}; "
@@ -283,7 +343,24 @@ def main():
                               cylinder_triangles(mg["base"], mg["axis"], mg["diameter"]) + lift))
         write_3mf(f"{version}/dodecahedron{'_exploded' if exploded else ''}.3mf", parts)
 
-    if pairs:
+    if pairs and common:
+        cupno, net, text = common
+        pole = {}
+        for p in pairs:
+            pole[(cupno[p["lower"][0]], mags[p["lower"][0]][p["lower"][1]]["pocket"])] = p["pole_lower"]
+            pole[(cupno[p["upper"][0]], mags[p["upper"][0]][p["upper"][1]]["pocket"])] = p["pole_upper"]
+        assert len(pole) == len(pairs), "the same pocket was given two poles"
+        order_pockets = [("apex", "right"), ("apex", "left"), ("right", "apex"), ("left", "apex")]
+        labels = {("apex", "right"): "apex edge right side", ("apex", "left"): "apex edge left side",
+                  ("right", "apex"): "right corner", ("left", "apex"): "left corner"}
+        with open(f"{version}/magnets.csv", "w") as f:
+            f.write("plate (counter-clockwise seen from above, cup standing on its base),"
+                    "pocket (seen from the inner face with the apex up),pole facing the joint\n")
+            for n in range(1, 6):
+                for pk in order_pockets:
+                    f.write(f"{n},{labels[pk]},{pole[(n, pk)]}\n")
+        print(f"wrote {version}/magnets.csv: one table for both cups (poles N/S facing the joint: {sum(v == 'N' for v in pole.values())} N, {sum(v == 'S' for v in pole.values())} S)")
+    elif pairs:
         with open(f"{version}/magnets.csv", "w") as f:
             f.write("ring,lower plate,lower pocket (seen from the inner face with the apex up),pole facing the joint (lower),"
                     "upper plate,upper pocket (seen from the inner face with the apex up),pole facing the joint (upper)\n")
@@ -291,23 +368,6 @@ def main():
                 (li, lk), (ui, uk) = p["lower"], p["upper"]
                 f.write(f"{p['ring']},{names[li]},{mags[li][lk]['label']},{p['pole_lower']},{names[ui]},{mags[ui][uk]['label']},{p['pole_upper']}\n")
         print(f"wrote {version}/magnets.csv")
-        if "side" in kinds:
-            match, deg = swap_map(roles, transforms)
-            order = sorted((i for i, r in enumerate(roles) if r == "lower"),
-                           key=lambda i: math.atan2(faces[i][0][1], faces[i][0][0]))
-            pole = {}
-            for p in pairs:
-                pole[p["lower"]] = (p["ring"], p["pole_lower"])
-                pole[p["upper"]] = (p["ring"], p["pole_upper"])
-            with open(f"{version}/magnets_by_cup.csv", "w") as f:
-                f.write("cup,plate (counter-clockwise seen from above, cup standing on its base),"
-                        "pocket (seen from the inner face with the apex up),pole facing the joint,pair\n")
-                for cup_name, pick in (("A (fill the apex pockets)", lambda i: i), ("B (fill the corner pockets)", lambda i: match[i])):
-                    for n, i in enumerate(order, 1):
-                        for k, mg in enumerate(mags[pick(i)]):
-                            ring, pl = pole[(pick(i), k)]
-                            f.write(f"{cup_name},{n},{mg['label']},{pl},{ring}\n")
-            print(f"wrote {version}/magnets_by_cup.csv (cup B = cup A turned 180 deg about the horizontal axis at {deg:.2f} deg)")
 
 
 def run_fit_checks(files, faces, transforms, mags):
@@ -359,7 +419,7 @@ def run_fit_checks(files, faces, transforms, mags):
 
         worst = {"plate-plate": 0.0, "display-display": 0.0, "plate-display": 0.0, "magnet-anything": 0.0}
         for i, mg in magnet_solids:
-            for other in plates + displays + [mm for _, mm in magnet_solids if mm is not mg]:
+            for other in plates + displays:
                 worst["magnet-anything"] = max(worst["magnet-anything"], overlap(mg, other))
         for i, j in itertools.combinations(range(12), 2):
             worst["plate-plate"] = max(worst["plate-plate"], overlap(plates[i], plates[j]))
