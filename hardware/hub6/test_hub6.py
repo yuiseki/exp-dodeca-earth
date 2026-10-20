@@ -12,15 +12,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # XIAO pin -> display PH2.0 pin, shared by all six displays (pins: 1 VCC, 2 GND, 3 DIN, 4 CLK, 5 CS, 6 DC, 7 RST, 8 BL).
 # Which pin carries which signal is README.md's table (found by assign.py).
-SHARED = {"D2": 3, "D5": 4, "D7": 6, "D8": 7, "D10": 8}
-# display d (header J(d+1): plate 1..5, base) -> the XIAO pin that selects it
-CS_PIN = {0: "D6", 1: "D3", 2: "D9", 3: "D1", 4: "D0", 5: "D4"}
+SHARED = {"D0": 3, "D1": 4, "D2": 6, "D4": 7, "D5": 8}
+# the XIAO pins that carry the 74HC138's address A0, A1, A2 (U1 pins 1, 2, 3)
+ADDRESS = {"D7": "1", "D8": "2", "D9": "3"}
+# display d (header J(d+1): plate 1..5, base) -> the U1 output pin that selects it (pin 15 is Y0 ... pin 9 is Y6)
+CS_PIN = {0: "15", 1: "14", 2: "13", 3: "12", 4: "10", 5: "11"}
+# pins of the XIAO that are not connected
+SPARE = ["D3", "D6", "D10"]
 # XIAO pin -> (socket, pin): J7 takes XIAO pins 1-7 (D0-D6), J8 pins 8-14 (D7-D10, 3V3, GND, 5V)
 _XIAO_NUMBER = {"D0": 1, "D1": 2, "D2": 3, "D3": 4, "D4": 5, "D5": 6, "D6": 7, "D7": 8,
                 "D8": 9, "D9": 10, "D10": 11, "3V3": 12, "GND": 13, "5V": 14}
 XIAO_PIN = {k: ("J7", str(n)) if n <= 7 else ("J8", str(n - 7)) for k, n in _XIAO_NUMBER.items()}
 HEADERS = {d: f"J{d + 1}" for d in range(6)}
-A_IN = 22.5
+A_IN = 25.0
 
 
 @pytest.fixture(scope="module")
@@ -57,22 +61,44 @@ def test_power(pads):
         assert same(pads, XIAO_PIN["3V3"], (j, "1"))
         assert same(pads, XIAO_PIN["GND"], (j, "2"))
     assert alone(pads, XIAO_PIN["5V"])
-    assert same(pads, XIAO_PIN["3V3"], ("C2", "1"))
-    assert same(pads, XIAO_PIN["GND"], ("C2", "2"))
+    for c in ("C2", "C3"):
+        assert same(pads, XIAO_PIN["3V3"], (c, "1"))
+        assert same(pads, XIAO_PIN["GND"], (c, "2"))
 
 
-def test_every_display_has_its_own_chip_select_straight_from_a_xiao_pin(pads):
+def test_74hc138_power_and_enables(pads):
+    """VCC and E3 (active high) on 3V3; E1, E2 (active low) and GND on GND: always enabled."""
+    pads, _ = pads
+    for pin in ("16", "6"):
+        assert same(pads, XIAO_PIN["3V3"], ("U1", pin)), pin
+    for pin in ("4", "5", "8"):
+        assert same(pads, XIAO_PIN["GND"], ("U1", pin)), pin
+
+
+def test_address_lines_run_from_the_xiao_to_the_decoder(pads):
+    pads, _ = pads
+    for xiao, u1 in ADDRESS.items():
+        assert sorted(k for k, v in pads.items() if v == pads[("U1", u1)]) == sorted([("U1", u1), XIAO_PIN[xiao]]), xiao
+
+
+def test_every_display_has_its_own_chip_select_from_a_decoder_output(pads):
     pads, _ = pads
     for d, j in HEADERS.items():
-        assert same(pads, XIAO_PIN[CS_PIN[d]], (j, "5")), (d, j)
+        assert same(pads, ("U1", CS_PIN[d]), (j, "5")), (d, j)
+        # a chip select touches nothing but its decoder output and its header
+        assert sorted(k for k, v in pads.items() if v == pads[(j, "5")]) == sorted([(j, "5"), ("U1", CS_PIN[d])])
     assert len({pads[(j, "5")] for j in HEADERS.values()}) == 6
-    assert len(set(CS_PIN.values()) | set(SHARED)) == 11  # all of D0-D10, none twice
+    assert len(set(CS_PIN.values())) == 6
 
 
-def test_no_other_connections(pads):
+def test_unused_pins_are_unconnected(pads):
     pads, _ = pads
-    for d, j in HEADERS.items():  # a display's CS touches nothing but its XIAO pin
-        assert sorted(k for k, v in pads.items() if v == pads[(j, "5")]) == sorted([(j, "5"), XIAO_PIN[CS_PIN[d]]])
+    for pin in SPARE:
+        assert alone(pads, XIAO_PIN[pin]), pin
+    for pin in ("7", "9"):  # the decoder's Y7 and Y6
+        assert alone(pads, ("U1", pin)), pin
+    assert len(SHARED) + len(ADDRESS) + len(SPARE) == 11  # D0-D10, none twice
+    assert not set(SHARED) & set(ADDRESS) | set(SHARED) & set(SPARE) | set(ADDRESS) & set(SPARE)
 
 
 def test_xiao_sockets_are_two_rows_15_24_apart_with_d0_and_5v_at_the_usb_end(pads):
@@ -186,3 +212,28 @@ def test_power_comes_from_the_planes(pads):
         assert length <= 25.0, (net, length)
     zones = {(board.GetLayerName(z.GetLayer()), z.GetNetname()) for z in board.Zones()}
     assert zones == {("In1.Cu", "GND"), ("B.Cu", "+3V3")}, zones
+
+
+def test_decoder_and_capacitors_sit_under_the_xiao(pads):
+    """U1, C2 and C3 are between the socket rows, under the XIAO (8.5mm up): inside its outline."""
+    _, board = pads
+    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    x1 = fps["X1"]
+    cx, cy = pcbnew.ToMM(x1.GetPosition().x), pcbnew.ToMM(x1.GetPosition().y)
+    rot = math.radians(x1.GetOrientationDegrees())
+    for ref in ("U1", "C2", "C3"):
+        for pd in fps[ref].Pads():
+            px, py = pcbnew.ToMM(pd.GetPosition().x) - cx, pcbnew.ToMM(pd.GetPosition().y) - cy
+            lx = px * math.cos(rot) - py * math.sin(rot)  # back to the XIAO's frame
+            ly = px * math.sin(rot) + py * math.cos(rot)
+            assert abs(lx) <= 8.95 - 4.0 and abs(ly) <= 10.47 - 2.0, (ref, pd.GetNumber(), lx, ly)
+
+
+def test_decoder_lines_stay_inside_the_free_part_of_in2(pads):
+    """The five bus rings start at radius 12.9 on In2; the chip-select lines run inside 12.4."""
+    _, board = pads
+    cx, cy = board_centre(board)
+    for t in board.GetTracks():
+        if t.Type() == pcbnew.PCB_TRACE_T and t.GetLayer() == pcbnew.In2_Cu and t.GetNetname().startswith("LCD_CS"):
+            for p in (t.GetStart(), t.GetEnd()):
+                assert math.hypot(pcbnew.ToMM(p.x) - cx, pcbnew.ToMM(p.y) - cy) <= 12.4 + 1e-6, t.GetNetname()
