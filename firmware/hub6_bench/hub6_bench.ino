@@ -44,6 +44,14 @@ struct Panel_Hub6 : public lgfx::Panel_GC9A01 {
     setColorDepth(getWriteDepth());  // COLMOD and MADCTL, as lcd.init() sends them
     setInvert(getInvert());          // INVON, as lcd.init() sends it (the panel's cfg.invert is true)
   }
+  // LovyanGFX remembers the last address window it sent (CASET, RASET) and skips them when the next
+  // draw uses the same one. That holds for one panel, not for six behind one object: a full-screen
+  // draw on the next display would go into whatever window that display last had. Forget it on
+  // every switch, so the window is always sent.
+  void forgetWindow() {
+    _xsxe = ~0u;
+    _ysye = ~0u;
+  }
 };
 
 class LGFX : public lgfx::LGFX_Device {
@@ -92,6 +100,7 @@ void select(uint8_t address) {
   digitalWrite(PIN_A0, address & 1);
   digitalWrite(PIN_A1, (address >> 1) & 1);
   digitalWrite(PIN_A2, (address >> 2) & 1);
+  lcd.panel.forgetWindow();
 }
 
 void drawIdentity(int d) {
@@ -117,13 +126,21 @@ void showIdentity() {
   Serial.println("identity: P1 RED, P2 GREEN, P3 BLUE, P4 YELLOW, P5 MAGENTA, BASE CYAN");
 }
 
+// The faces live in flash, which the SPI DMA cannot read: copy them a line at a time into RAM and
+// send each line from there (plain RGB565 values, so swap = true in LovyanGFX's terms).
 void showEarth() {
+  static uint16_t line[240];
   for (int d = 0; d < NUM_DISPLAYS; d++) {
     select(ADDRESS[d]);
     lcd.startWrite();
-    lcd.pushImage(0, 0, 240, 240, EARTH_FACES[d]);
+    lcd.setAddrWindow(0, 0, 240, 240);
+    for (int y = 0; y < 240; y++) {
+      memcpy(line, &EARTH_FACES[d][y * 240], sizeof line);
+      lcd.writePixels(line, 240, true);
+    }
     lcd.endWrite();
     select(NONE);
+    Serial.printf("earth %s: centre pixel 0x%04x\n", NAME[d], EARTH_FACES[d][120 * 240 + 120]);
   }
   Serial.println("earth");
 }
