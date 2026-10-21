@@ -4,10 +4,22 @@ hub6 の基板を発注する前に、XIAO ESP32-S3 1 枚と 74HC138 で、1.28 
 
 ## ビルドと書き込み
 
-地球の画像 `earth_faces.h` は生成物で、git には入れていない。先に作る (元の画像は NASA Blue Marble 2002、パブリックドメイン。exp-cubic-earth にある):
+地球の画像 `earth_faces.h` は生成物で、git には入れていない。先に作る。元の画像は正距円筒の全球画像なら何でもよい。NASA Blue Marble 2002 (パブリックドメイン、exp-cubic-earth にある) なら:
 
 ```sh
 ../../.venv/bin/python make_earth_faces.py ../../../exp-cubic-earth/lt7680_earth/blue_marble_2002.jpg --preview earth.png
+```
+
+自前のタイルサーバーの地図 (Web メルカトルのラスタータイル) なら、ズーム 4 の 256 枚をつないで正距円筒に直してから使う。北緯 85 度より北と南緯 85 度より南はタイルに無いので、85 度の行の色を引き伸ばす:
+
+```sh
+../../.venv/bin/python make_tile_mosaic.py https://tile.yuiseki.net/styles/osm-liberty-no-text-no-icons --zoom 4 --cache ../../tmp/tiles --out ../../tmp/osm-liberty-equirect.png
+../../.venv/bin/python make_earth_faces.py ../../tmp/osm-liberty-equirect.png --preview earth.png
+```
+
+そのあと:
+
+```sh
 arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3 --output-dir build .
 arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32S3 --input-dir build -p /dev/ttyACM0   # ポートは arduino-cli board list で
 ```
