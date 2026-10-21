@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 tmp/
 firmware/*/build/
+firmware/hub6_bench/earth_faces.h
