@@ -28,6 +28,8 @@ const char *const NAME[NUM_DISPLAYS] = {"P1", "P2", "P3", "P4", "P5", "BASE"};
 const uint16_t COLOUR[NUM_DISPLAYS] = {TFT_RED, TFT_GREEN, TFT_BLUE, TFT_YELLOW, TFT_MAGENTA, TFT_CYAN};
 const char *const COLOUR_NAME[NUM_DISPLAYS] = {"RED", "GREEN", "BLUE", "YELLOW", "MAGENTA", "CYAN"};
 const uint32_t ALLOWED_MHZ[] = {80, 40, 27, 20, 16, 10};
+// Mounted in the cup, the displays read upside down at the panel's own rotation: turn all six 180 degrees.
+constexpr uint8_t ROTATION = 2;
 
 // The GC9A01 panel, with a way to send its init sequence again without initialising the SPI bus
 // again: lcd.init() does both, for the first display; the other five get only the commands.
@@ -67,6 +69,7 @@ class LGFX : public lgfx::LGFX_Device {
     p.pin_busy = -1;
     p.panel_width = p.memory_width = 240;
     p.panel_height = p.memory_height = 240;
+    p.offset_rotation = ROTATION;  // every MADCTL sent (lcd.init() and sendInitCommands()) includes it
     p.readable = false;
     p.invert = true;
     p.rgb_order = false;
