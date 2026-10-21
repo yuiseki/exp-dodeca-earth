@@ -10,6 +10,7 @@
 //   i        identity: each display shows its name, its 74HC138 address and a colour, and stays
 //   b        benchmark: full-screen fills on all six in turn, frames/s printed
 //   f <MHz>  SPI clock for the next boot (80, 40, 27, 20, 16, 10), saved, then restarts
+//   r <d>    send display d (0 = P1 .. 5 = BASE) its init sequence again and redraw it, the others untouched
 //
 // LovyanGFX (in M5GFX) drives the panel. Its CS is not used (pin_cs = -1): this sketch selects a
 // display by setting the 74HC138's address, and only between transfers, while SCK is idle (the
@@ -128,9 +129,9 @@ void showIdentity() {
 
 // The faces live in flash, which the SPI DMA cannot read: copy them a line at a time into RAM and
 // send each line from there (plain RGB565 values, so swap = true in LovyanGFX's terms).
-void showEarth() {
+void drawEarth(int d) {
   static uint16_t line[240];
-  for (int d = 0; d < NUM_DISPLAYS; d++) {
+  {
     select(ADDRESS[d]);
     lcd.startWrite();
     lcd.setAddrWindow(0, 0, 240, 240);
@@ -140,8 +141,11 @@ void showEarth() {
     }
     lcd.endWrite();
     select(NONE);
-    Serial.printf("earth %s: centre pixel 0x%04x\n", NAME[d], EARTH_FACES[d][120 * 240 + 120]);
   }
+}
+
+void showEarth() {
+  for (int d = 0; d < NUM_DISPLAYS; d++) drawEarth(d);
   Serial.println("earth");
 }
 
@@ -177,7 +181,7 @@ void setup() {
   }
   digitalWrite(PIN_BL, HIGH);
   delay(500);  // the USB serial port comes up after a moment
-  Serial.printf("hub6_bench: %d displays, SPI %.2f MHz (asked for), b/i/f <MHz>\n", NUM_DISPLAYS, spi_hz / 1e6);
+  Serial.printf("hub6_bench: %d displays, SPI %.2f MHz (asked for), e/i/b/f <MHz>/r <d>\n", NUM_DISPLAYS, spi_hz / 1e6);
   showIdentity();
   delay(3000);
   showEarth();
@@ -203,6 +207,20 @@ void handleSerial() {
     } else if (buf[0] == 'b') {
       mode = BENCHMARK;
       Serial.println("benchmark");
+    } else if (buf[0] == 'r') {
+      int d = atoi(buf + 1);
+      if (d < 0 || d >= NUM_DISPLAYS) {
+        Serial.println("r: 0 (P1) .. 5 (BASE)");
+        continue;
+      }
+      select(ADDRESS[d]);
+      lcd.panel.sendInitCommands();
+      lcd.startWrite();
+      lcd.clear();
+      lcd.endWrite();
+      select(NONE);
+      if (mode == IDENTITY) drawIdentity(d); else drawEarth(d);
+      Serial.printf("re-initialised %s (address %u)\n", NAME[d], ADDRESS[d]);
     } else if (buf[0] == 'f') {
       uint32_t mhz = strtoul(buf + 1, nullptr, 10);
       bool ok = false;
