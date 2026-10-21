@@ -31,18 +31,18 @@ arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32S3 --input-dir build -p /dev/tty
 
 6 枚とも同じ線を共有する。ブレッドボードで、信号ごとに 1 列を作り、XIAO と 6 枚をその列につなぐ。
 
-| ディスプレイの線 | つなぐ先 |
-|---|---|
-| VCC | XIAO 3V3 |
-| GND | XIAO GND |
-| DIN | XIAO D0 |
-| CLK | XIAO D1 |
-| DC | XIAO D3 |
-| RST | XIAO D4 |
-| BL | XIAO D5 |
-| CS | 74HC138 の出力 (下の表) |
+| ディスプレイの線 | 付属ケーブルの色 | つなぐ先 |
+|---|---|---|
+| VCC | 紫 | XIAO 3V3 |
+| GND | 白 | XIAO GND |
+| DIN | 緑 | XIAO D0 |
+| CLK | オレンジ | XIAO D1 |
+| CS | 黄 | 74HC138 の出力 (下の表) |
+| DC | 青 | XIAO D3 |
+| RST | 茶 | XIAO D4 |
+| BL | 灰 | XIAO D5 |
 
-ケーブルの色と信号の対応は、モジュールの印字か Waveshare の配線表で確かめる (私は確かめていない)。
+色は、ディスプレイに付属の PH2.0 と Dupont のケーブルのもの (2026-10-21 に実物で確かめた)。hub6 の基板に使う「PH2.0 とより線」のケーブル (Amazon) の色は、これと同じとは限らない。
 
 | ディスプレイ | CS をつなぐ 74HC138 のピン | アドレス |
 |---|---|---|
