@@ -156,7 +156,7 @@ void setup() {
   digitalWrite(PIN_BL, LOW);
 
   prefs.begin("hub6bench", false);
-  spi_hz = prefs.getUInt("hz", 40000000);
+  spi_hz = prefs.getUInt("hz", 20000000);  // six displays on the bench leads were steady up to 20 MHz (README)
   lcd.configure(spi_hz);
 
   // one reset for all six (RST is shared)
