@@ -1,13 +1,12 @@
 """Write the JLCPCB files to build/fab/: Gerbers and drill (zipped), and the
-BOM and placement (CPL) for the parts with an LCSC number.
+BOM and placement (CPL) for the parts with an LCSC number; then copy the three
+files to upload into fab6/.
 
     /usr/bin/python3 fab.py
 
 Every part with an LCSC number is on the top side (Economic PCBA places one
-side only). The header footprint is JLCPCB's own EasyEDA footprint for
-C265441 (made with JLC2KiCadLib), so its rotation needs no correction; check
-the headers' orientation in JLCPCB's placement preview all the same. The
-XIAO itself is plugged in by hand.
+side only). The display cables are soldered into bare rows of holes (J1-J6),
+which have no part. The XIAO itself is plugged in by hand.
 """
 import csv
 import os
@@ -73,8 +72,13 @@ def main():
             values = sorted(row["values"])
             comment = values[0] if len(values) == 1 else row["footprint"]  # no commas in a CSV cell
             w.writerow([comment, ",".join(row["refs"]), row["footprint"], lcsc])
+    upload = os.path.join(HERE, "fab6")
+    os.makedirs(upload, exist_ok=True)
+    for name in ("hub6-gerbers.zip", "hub6-bom.csv", "hub6-cpl.csv"):
+        shutil.copy(os.path.join(OUT, name), upload)
     for name in sorted(os.listdir(OUT)):
         print(os.path.join(OUT, name))
+    print(f"copied the gerbers, BOM and CPL to {upload}")
 
 
 if __name__ == "__main__":

@@ -10,21 +10,23 @@ import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# XIAO pin -> display PH2.0 pin, shared by all six displays (pins: 1 VCC, 2 GND, 3 DIN, 4 CLK, 5 CS, 6 DC, 7 RST, 8 BL).
-# Which pin carries which signal is README.md's table (found by assign.py).
-SHARED = {"D0": 3, "D1": 4, "D2": 6, "D4": 7, "D5": 8}
+# XIAO pin -> display cable pin, shared by all six displays (pins: 1 VCC, 2 GND, 3 DIN, 4 CLK, 5 CS, 6 DC, 7 RST, 8 BL).
+# Which pin carries which signal is README.md's table: the base display's row (J6) runs beside the XIAO's
+# right socket row, its pins 3, 4, 6, 7, 8 level with D0, D1, D3, D4, D5.
+SHARED = {"D0": 3, "D1": 4, "D3": 6, "D4": 7, "D5": 8}
 # the XIAO pins that carry the 74HC138's address A0, A1, A2 (U1 pins 1, 2, 3)
 ADDRESS = {"D7": "1", "D8": "2", "D9": "3"}
 # display d (header J(d+1): plate 1..5, base) -> the U1 output pin that selects it (pin 15 is Y0 ... pin 9 is Y6)
 CS_PIN = {0: "15", 1: "14", 2: "13", 3: "12", 4: "10", 5: "11"}
 # pins of the XIAO that are not connected
-SPARE = ["D3", "D6", "D10"]
+SPARE = ["D2", "D6", "D10"]
 # XIAO pin -> (socket, pin): J7 takes XIAO pins 1-7 (D0-D6), J8 pins 8-14 (D7-D10, 3V3, GND, 5V)
 _XIAO_NUMBER = {"D0": 1, "D1": 2, "D2": 3, "D3": 4, "D4": 5, "D5": 6, "D6": 7, "D7": 8,
                 "D8": 9, "D9": 10, "D10": 11, "3V3": 12, "GND": 13, "5V": 14}
 XIAO_PIN = {k: ("J7", str(n)) if n <= 7 else ("J8", str(n - 7)) for k, n in _XIAO_NUMBER.items()}
 HEADERS = {d: f"J{d + 1}" for d in range(6)}
-A_IN = 25.0
+A_IN = 26.0
+W_R = 22.0  # the side displays' hole rows, from the centre
 
 
 @pytest.fixture(scope="module")
@@ -110,47 +112,89 @@ def test_xiao_sockets_are_two_rows_15_24_apart_with_d0_and_5v_at_the_usb_end(pad
     assert dist(d0, v5) == pytest.approx(15.24)  # D0 and 5V face each other across the XIAO
     assert dist(d0, d6) == pytest.approx(15.24)  # a row is 6 pitches long
     assert dist(v5, d7) == pytest.approx(15.24)
-    # D0 and 5V are the pins at the USB-C end: the XIAO's USB-C points at 72 degrees (a corner)
+    # D0 and 5V are the pins at the USB-C end: the XIAO's USB-C points at 72 degrees
     mid = pcbnew.VECTOR2I((d0.x + v5.x) // 2, (d0.y + v5.y) // 2)
     centre = pcbnew.VECTOR2I((d0.x + d6.x + d7.x + v5.x) // 4, (d0.y + d6.y + d7.y + v5.y) // 4)
     angle = math.degrees(math.atan2(-(mid.y - centre.y), mid.x - centre.x)) % 360
     assert angle == pytest.approx(72, abs=0.01)
 
 
-def board_centre(board):
-    xs, ys = [], []
-    for d in board.GetDrawings():
-        if d.GetLayer() == pcbnew.Edge_Cuts:
-            for p in (d.GetStart(), d.GetEnd()):
-                xs.append(pcbnew.ToMM(p.x)); ys.append(pcbnew.ToMM(p.y))
-    return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+def outline_centre(board):
+    """The pentagon's centre: the mean of its corners."""
+    pts = [d.GetStart() for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
+    return sum(pcbnew.ToMM(p.x) for p in pts) / len(pts), sum(pcbnew.ToMM(p.y) for p in pts) / len(pts)
 
 
-def test_outline_is_a_regular_hexagon(pads):
+def test_outline_is_a_regular_pentagon_with_its_edges_facing_the_side_plates(pads):
     _, board = pads
     segs = [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
-    assert len(segs) == 6
+    assert len(segs) == 5
     lengths = [pcbnew.ToMM(math.hypot(s.GetEnd().x - s.GetStart().x, s.GetEnd().y - s.GetStart().y)) for s in segs]
-    side = 2 * A_IN / math.sqrt(3)
-    assert lengths == pytest.approx([side] * 6, abs=0.01)
+    side = 2 * A_IN * math.tan(math.radians(36))
+    assert lengths == pytest.approx([side] * 5, abs=0.01)
+    cx, cy = outline_centre(board)
+    mids = sorted(math.degrees(math.atan2(-((pcbnew.ToMM(s.GetStart().y) + pcbnew.ToMM(s.GetEnd().y)) / 2 - cy),
+                                          (pcbnew.ToMM(s.GetStart().x) + pcbnew.ToMM(s.GetEnd().x)) / 2 - cx)) % 360 for s in segs)
+    assert mids == pytest.approx([54, 126, 198, 270, 342], abs=0.01)  # the cup's five side plates
 
 
-def test_headers_sit_on_the_six_edges_60_degrees_apart_pin_1_counter_clockwise(pads):
-    pads_, board = pads
-    cx, cy = board_centre(board)
-    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
-    angles = []
-    for d, j in HEADERS.items():
-        fp = fps[j]
-        x, y = pcbnew.ToMM(fp.GetPosition().x) - cx, -(pcbnew.ToMM(fp.GetPosition().y) - cy)
-        assert math.hypot(x, y) == pytest.approx(A_IN - 3.3, abs=0.01)
-        angles.append(math.degrees(math.atan2(y, x)) % 360)
-        p = {pd.GetNumber(): pd.GetPosition() for pd in fp.Pads() if pd.GetNumber()}
-        p1 = (pcbnew.ToMM(p["1"].x) - cx, -(pcbnew.ToMM(p["1"].y) - cy))
-        p8 = (pcbnew.ToMM(p["8"].x) - cx, -(pcbnew.ToMM(p["8"].y) - cy))
+def pad_xy(board, ref, num):
+    """Pad position relative to the outline's centre, y up (seen from above)."""
+    cx, cy = outline_centre(board)
+    fp = next(f for f in board.GetFootprints() if f.GetReference() == ref)
+    p = next(pd for pd in fp.Pads() if pd.GetNumber() == num).GetPosition()
+    return pcbnew.ToMM(p.x) - cx, -(pcbnew.ToMM(p.y) - cy)
+
+
+def test_side_rows_sit_along_the_five_edges_pin_1_counter_clockwise(pads):
+    _, board = pads
+    for d, theta in enumerate((198, 270, 342, 54, 126)):  # plate 1 .. plate 5
+        j = HEADERS[d]
+        p1, p8 = pad_xy(board, j, "1"), pad_xy(board, j, "8")
+        mid = ((p1[0] + p8[0]) / 2, (p1[1] + p8[1]) / 2)
+        assert math.hypot(*mid) == pytest.approx(W_R, abs=0.01), j
+        assert math.degrees(math.atan2(mid[1], mid[0])) % 360 == pytest.approx(theta, abs=0.01), j
+        assert math.dist(p1, p8) == pytest.approx(7 * 2.54), j
         assert p8[0] * p1[1] - p8[1] * p1[0] > 0, j  # pin 1 is counter-clockwise of pin 8 seen from above
-    # plate 1 is the one 222 degrees round, then 282 (plate 2), 342 (plate 3), 42, 102, 162 (the base)
-    assert angles == pytest.approx([222, 282, 342, 42, 102, 162], abs=0.01)
+
+
+def test_base_row_runs_beside_the_xiao_level_with_its_pins(pads):
+    """J6 (the base display) runs 2.88mm outside the right socket row (0.8mm clear of the socket's body,
+    for the iron), each shared pin level with its XIAO pin: the shared lines are short straight links."""
+    _, board = pads
+    for xiao, ph in SHARED.items():
+        assert math.dist(pad_xy(board, *XIAO_PIN[xiao]), pad_xy(board, "J6", str(ph))) == pytest.approx(10.5 - 7.62), xiao
+    # over the base display's plug (simulate/cables.py: centre (-8.68, 2.82), long axis at 72 degrees)
+    p1, p8 = pad_xy(board, "J6", "1"), pad_xy(board, "J6", "8")
+    mid = ((p1[0] + p8[0]) / 2, (p1[1] + p8[1]) / 2)
+    assert math.dist(mid, (-8.68, 2.82)) <= 5.0
+    assert math.degrees(math.atan2(p1[1] - p8[1], p1[0] - p8[0])) % 180 == pytest.approx(72, abs=0.01)
+
+
+def test_cable_holes_take_26awg_wire(pads):
+    """The cables (26 AWG stranded, about 0.5mm copper) are soldered straight in."""
+    _, board = pads
+    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    for j in HEADERS.values():
+        for pd in fps[j].Pads():
+            if pd.GetNumber():
+                assert 0.9 <= pcbnew.ToMM(pd.GetDrillSize().x) <= 1.2, (j, pd.GetNumber())
+                assert pd.GetAttribute() == pcbnew.PAD_ATTRIB_PTH
+
+
+def test_side_rows_have_two_slots_for_a_cable_tie_outside_the_row(pads):
+    """A 2.5mm cable tie through two slots holds each side cable down beyond its holes."""
+    _, board = pads
+    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    for d in range(5):
+        slots = [pd for pd in fps[HEADERS[d]].Pads() if pd.GetAttribute() == pcbnew.PAD_ATTRIB_NPTH]
+        assert len(slots) == 2, d
+        for pd in slots:
+            sz = sorted((pcbnew.ToMM(pd.GetDrillSize().x), pcbnew.ToMM(pd.GetDrillSize().y)))
+            assert sz[0] >= 1.2 and sz[1] >= 2.8, sz
+            p = pcbnew.ToMM(pd.GetPosition().x), pcbnew.ToMM(pd.GetPosition().y)
+            cx, cy = outline_centre(board)
+            assert math.hypot(p[0] - cx, p[1] - cy) > W_R + 1.0
 
 
 def rect(cx, cy, w, h, deg):
@@ -170,8 +214,8 @@ def poly_dist(a, b):
                [seg_dist(p, a[i], a[(i + 1) % len(a)]) for p in b for i in range(len(a))])
 
 
-def test_xiao_outline_clears_every_header_pad(pads):
-    """The XIAO sits 8.5mm up, over the middle: the plugs above the headers must clear it."""
+def test_xiao_outline_clears_every_cable_hole(pads):
+    """The XIAO sits 8.5mm up, over the middle: every cable hole is outside its outline, for the iron."""
     _, board = pads
     fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
     x1 = fps["X1"]
@@ -187,11 +231,13 @@ def test_xiao_outline_clears_every_header_pad(pads):
     worst = 99.0
     for j in HEADERS.values():
         for pd in fps[j].Pads():
+            if not pd.GetNumber():
+                continue
             sz = pd.GetSize()
             quad = rect(pcbnew.ToMM(pd.GetPosition().x), pcbnew.ToMM(pd.GetPosition().y), pcbnew.ToMM(sz.x), pcbnew.ToMM(sz.y), -pd.GetOrientationDegrees())
             for o in outline:
                 worst = min(worst, poly_dist(o, quad))
-    assert worst >= 0.5, f"XIAO outline is {worst:.2f}mm from a header pad"
+    assert worst >= 0.3, f"XIAO outline is {worst:.2f}mm from a cable hole"
 
 
 def test_every_assembled_part_is_on_the_top_side(pads):
@@ -230,10 +276,10 @@ def test_decoder_and_capacitors_sit_under_the_xiao(pads):
 
 
 def test_decoder_lines_stay_inside_the_free_part_of_in2(pads):
-    """The five bus rings start at radius 12.9 on In2; the chip-select lines run inside 12.4."""
+    """The five bus rings start at radius 17.6 on In2; the chip-select lines run inside 17.1."""
     _, board = pads
-    cx, cy = board_centre(board)
+    cx, cy = outline_centre(board)
     for t in board.GetTracks():
         if t.Type() == pcbnew.PCB_TRACE_T and t.GetLayer() == pcbnew.In2_Cu and t.GetNetname().startswith("LCD_CS"):
             for p in (t.GetStart(), t.GetEnd()):
-                assert math.hypot(pcbnew.ToMM(p.x) - cx, pcbnew.ToMM(p.y) - cy) <= 12.4 + 1e-6, t.GetNetname()
+                assert math.hypot(pcbnew.ToMM(p.x) - cx, pcbnew.ToMM(p.y) - cy) <= 17.1 + 1e-6, t.GetNetname()
