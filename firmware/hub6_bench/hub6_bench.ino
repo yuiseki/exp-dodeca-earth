@@ -1,0 +1,214 @@
+// hub6_bench: drive six 1.28 inch round LCDs (GC9A01, Waveshare 1.28inch LCD Module) from one
+// XIAO ESP32-S3 through a 74HC138, wired on a breadboard exactly as the hub6 board wires them
+// (hardware/hub6/README.md), to check before ordering that six displays on one SPI bus work.
+//
+//   DIN D0, CLK D1, DC D3, RST D4, BL D5 are shared by all six displays.
+//   D7, D8, D9 are the 74HC138's A0, A1, A2; its output Yn is the CS of one display.
+//
+// Serial (USB, 115200):
+//   i        identity: each display shows its name, its 74HC138 address and a colour, and stays
+//   b        benchmark (the default): full-screen fills on all six in turn, frames/s printed
+//   f <MHz>  SPI clock for the next boot (80, 40, 27, 20, 16, 10), saved, then restarts
+//
+// LovyanGFX (in M5GFX) drives the panel. Its CS is not used (pin_cs = -1): this sketch selects a
+// display by setting the 74HC138's address, and only between transfers, while SCK is idle (the
+// decoder's outputs can glitch while the address changes). Address 7 (Y7, not connected)
+// selects none.
+#include <M5GFX.h>
+#include <lgfx/v1/panel/Panel_GC9A01.hpp>
+#include <Preferences.h>
+
+constexpr int PIN_DIN = D0, PIN_CLK = D1, PIN_DC = D3, PIN_RST = D4, PIN_BL = D5;
+constexpr int PIN_A0 = D7, PIN_A1 = D8, PIN_A2 = D9;
+constexpr int NUM_DISPLAYS = 6;
+// display d (plate 1..5, then the base) -> the 74HC138 address that selects it (hub6 README)
+constexpr uint8_t ADDRESS[NUM_DISPLAYS] = {0, 1, 2, 3, 5, 4};
+constexpr uint8_t NONE = 7;
+const char *const NAME[NUM_DISPLAYS] = {"P1", "P2", "P3", "P4", "P5", "BASE"};
+const uint16_t COLOUR[NUM_DISPLAYS] = {TFT_RED, TFT_GREEN, TFT_BLUE, TFT_YELLOW, TFT_MAGENTA, TFT_CYAN};
+const char *const COLOUR_NAME[NUM_DISPLAYS] = {"RED", "GREEN", "BLUE", "YELLOW", "MAGENTA", "CYAN"};
+const uint32_t ALLOWED_MHZ[] = {80, 40, 27, 20, 16, 10};
+
+// The GC9A01 panel, with a way to send its init sequence again without initialising the SPI bus
+// again: lcd.init() does both, for the first display; the other five get only the commands.
+struct Panel_Hub6 : public lgfx::Panel_GC9A01 {
+  void sendInitCommands() {
+    startWrite(true);
+    for (uint8_t i = 0; auto cmds = getInitCommands(i); i++) command_list(cmds);
+    endWrite();
+    setColorDepth(getWriteDepth());  // COLMOD and MADCTL, as lcd.init() sends them
+    setInvert(getInvert());          // INVON, as lcd.init() sends it (the panel's cfg.invert is true)
+  }
+};
+
+class LGFX : public lgfx::LGFX_Device {
+ public:
+  Panel_Hub6 panel;
+  lgfx::Bus_SPI bus;
+
+  void configure(uint32_t hz) {
+    auto b = bus.config();
+    b.spi_host = SPI2_HOST;
+    b.spi_mode = 0;
+    b.freq_write = hz;
+    b.freq_read = 8000000;
+    b.spi_3wire = true;
+    b.use_lock = true;
+    b.dma_channel = SPI_DMA_CH_AUTO;
+    b.pin_sclk = PIN_CLK;
+    b.pin_mosi = PIN_DIN;
+    b.pin_miso = -1;
+    b.pin_dc = PIN_DC;
+    bus.config(b);
+    panel.setBus(&bus);
+    auto p = panel.config();
+    p.pin_cs = -1;   // the 74HC138 selects
+    p.pin_rst = -1;  // shared: reset once, by hand, for all six
+    p.pin_busy = -1;
+    p.panel_width = p.memory_width = 240;
+    p.panel_height = p.memory_height = 240;
+    p.readable = false;
+    p.invert = true;
+    p.rgb_order = false;
+    p.bus_shared = false;
+    panel.config(p);
+    setPanel(&panel);
+  }
+};
+
+LGFX lcd;
+Preferences prefs;
+uint32_t spi_hz;
+bool benchmark = true;
+
+void select(uint8_t address) {
+  lcd.waitDMA();  // never change the address while a transfer runs
+  digitalWrite(PIN_A0, address & 1);
+  digitalWrite(PIN_A1, (address >> 1) & 1);
+  digitalWrite(PIN_A2, (address >> 2) & 1);
+}
+
+void drawIdentity(int d) {
+  select(ADDRESS[d]);
+  lcd.startWrite();
+  lcd.fillScreen(COLOUR[d]);
+  lcd.setTextColor(TFT_BLACK, COLOUR[d]);
+  lcd.setTextDatum(middle_center);
+  lcd.setFont(&fonts::Font4);
+  lcd.setTextSize(2);
+  lcd.drawString(NAME[d], 120, 90);
+  lcd.setTextSize(1);
+  char line[32];
+  snprintf(line, sizeof line, "address %u", ADDRESS[d]);
+  lcd.drawString(line, 120, 150);
+  lcd.drawString(COLOUR_NAME[d], 120, 180);
+  lcd.endWrite();
+  select(NONE);
+}
+
+void showIdentity() {
+  for (int d = 0; d < NUM_DISPLAYS; d++) drawIdentity(d);
+  Serial.println("identity: P1 RED, P2 GREEN, P3 BLUE, P4 YELLOW, P5 MAGENTA, BASE CYAN");
+}
+
+void setup() {
+  Serial.begin(115200);
+  for (int pin : {PIN_A0, PIN_A1, PIN_A2, PIN_RST, PIN_BL}) pinMode(pin, OUTPUT);
+  select(NONE);
+  digitalWrite(PIN_BL, LOW);
+
+  prefs.begin("hub6bench", false);
+  spi_hz = prefs.getUInt("hz", 40000000);
+  lcd.configure(spi_hz);
+
+  // one reset for all six (RST is shared)
+  digitalWrite(PIN_RST, HIGH);
+  delay(10);
+  digitalWrite(PIN_RST, LOW);
+  delay(20);
+  digitalWrite(PIN_RST, HIGH);
+  delay(150);
+
+  for (int d = 0; d < NUM_DISPLAYS; d++) {
+    select(ADDRESS[d]);
+    if (d == 0) {
+      lcd.init();  // the SPI bus, the panel's init sequence, and a clear
+    } else {
+      lcd.panel.sendInitCommands();  // sleep out (120ms) and display on are in the sequence
+      lcd.startWrite();
+      lcd.clear();
+      lcd.endWrite();
+    }
+    select(NONE);
+  }
+  digitalWrite(PIN_BL, HIGH);
+  delay(500);  // the USB serial port comes up after a moment
+  Serial.printf("hub6_bench: %d displays, SPI %.2f MHz (asked for), b/i/f <MHz>\n", NUM_DISPLAYS, spi_hz / 1e6);
+  showIdentity();
+  delay(3000);
+}
+
+void handleSerial() {
+  static char buf[32];
+  static int len = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c != '\n' && c != '\r') {
+      if (len < (int)sizeof buf - 1) buf[len++] = c;
+      continue;
+    }
+    buf[len] = 0;
+    len = 0;
+    if (buf[0] == 'i') {
+      benchmark = false;
+      showIdentity();
+    } else if (buf[0] == 'b') {
+      benchmark = true;
+      Serial.println("benchmark");
+    } else if (buf[0] == 'f') {
+      uint32_t mhz = strtoul(buf + 1, nullptr, 10);
+      bool ok = false;
+      for (uint32_t m : ALLOWED_MHZ) ok |= (m == mhz);
+      if (!ok) {
+        Serial.println("f: one of 80, 40, 27, 20, 16, 10");
+        continue;
+      }
+      prefs.putUInt("hz", mhz == 27 ? 26666667 : mhz * 1000000);
+      Serial.printf("SPI %lu MHz from the next boot; restarting\n", (unsigned long)mhz);
+      delay(100);
+      ESP.restart();
+    }
+  }
+}
+
+void loop() {
+  handleSerial();
+  if (!benchmark) {
+    delay(20);
+    return;
+  }
+  // One frame: a full-screen fill on each of the six in turn, alternating between the display's
+  // colour and black, with its name on top (a name on the wrong display means a select went wrong).
+  static uint32_t frames = 0, t0 = millis();
+  bool on = frames & 1;
+  for (int d = 0; d < NUM_DISPLAYS; d++) {
+    select(ADDRESS[d]);
+    lcd.startWrite();
+    uint16_t bg = on ? COLOUR[d] : TFT_BLACK;
+    lcd.fillScreen(bg);
+    lcd.setTextColor(on ? TFT_BLACK : COLOUR[d], bg);
+    lcd.setTextDatum(middle_center);
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextSize(2);
+    lcd.drawString(NAME[d], 120, 120);
+    lcd.endWrite();
+    select(NONE);
+  }
+  frames++;
+  uint32_t dt = millis() - t0;
+  if (dt >= 2000) {
+    Serial.printf("%.1f frames/s (6 full screens each), SPI %.2f MHz\n", frames * 1000.0 / dt, spi_hz / 1e6);
+    frames = 0;
+    t0 = millis();
+  }
+}
