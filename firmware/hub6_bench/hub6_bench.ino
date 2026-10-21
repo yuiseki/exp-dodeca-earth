@@ -167,16 +167,17 @@ void setup() {
   digitalWrite(PIN_RST, HIGH);
   delay(150);
 
+  // lcd.init() sets up the SPI bus and sends the init sequence in one go. With a display selected,
+  // that display came up as noise after every power-on (the pins settling while it listened, it
+  // seems); a second init sequence fixed it. So set up the bus with none selected, then give all six
+  // the same init sequence.
+  lcd.init();
   for (int d = 0; d < NUM_DISPLAYS; d++) {
     select(ADDRESS[d]);
-    if (d == 0) {
-      lcd.init();  // the SPI bus, the panel's init sequence, and a clear
-    } else {
-      lcd.panel.sendInitCommands();  // sleep out (120ms) and display on are in the sequence
-      lcd.startWrite();
-      lcd.clear();
-      lcd.endWrite();
-    }
+    lcd.panel.sendInitCommands();  // sleep out (120ms) and display on are in the sequence
+    lcd.startWrite();
+    lcd.clear();
+    lcd.endWrite();
     select(NONE);
   }
   digitalWrite(PIN_BL, HIGH);
