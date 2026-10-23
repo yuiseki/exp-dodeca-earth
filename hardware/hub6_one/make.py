@@ -5,7 +5,7 @@ PH2.0 8-pin) of one cup, with the XIAO ESP32-S3 on it: the alternative to rev C'
 
 A regular pentagon whose edges face the cup's five side plates. The XIAO hangs under it, flat side
 up (its battery wires leave through its pin headers' gap), plugged into two 8.5 mm female sockets
-on the underside (the same part as cubic-earth's hub3), so seen from above its pins are mirrored.
+on the underside (the same part as cubic-earth's hub3, soldered by hand), so seen from above its pins are mirrored.
 It sits 3 mm off the middle toward 342 degrees, clear of the base display's plug below. A
 74HC138 between the sockets, on top, turns three XIAO pins into the six chip selects.
 
@@ -165,8 +165,9 @@ PARTS.update({
     # its pin headers in two 1x7 female sockets (8.5 mm) on the underside: J7 the D0..D6 column, J8
     # the other (each socket's pins take the nets of the XIAO pins they hold, place_sockets).
     "U2": (f"{LIB}:XIAO_ESP32S3", "XIAO ESP32S3", "", "", {XIAO_NUMBER[k]: v for k, v in XIAO_NETS.items()}, None),
-    "J7": (f"{LIB}:Socket_1x07", "XIAO D0-D6", SOCKET_FP, "C2832270", None, "socket"),
-    "J8": (f"{LIB}:Socket_1x07", "XIAO 5V-D7", SOCKET_FP, "C2832270", None, "socket"),
+    # soldered by hand (XFCN PM254V-11-07-H85, LCSC C2832270 as on cubic-earth's hub3): not in the BOM
+    "J7": (f"{LIB}:Socket_1x07", "XIAO D0-D6", SOCKET_FP, "", None, "socket"),
+    "J8": (f"{LIB}:Socket_1x07", "XIAO 5V-D7", SOCKET_FP, "", None, "socket"),
     "X1": (None, "XIAO", XIAO_FP, "", {}, (*xf(XIAO_X, XIAO_Y), XIAO_PSI)),
     "U1": (f"{LIB}:74HC138", "74HC138", "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm", "C2674688", U1_NETS, (*xf(XIAO_X, U1_Y), XIAO_PSI)),
     # bulk for the six displays (about 190mA) on the 3V3 line from the XIAO, and U1's decoupling
@@ -477,6 +478,7 @@ def write_board(libs, nets_of, plan):
         if place == "socket":
             place_socket(board, fp, ref)
             fp.Value().SetVisible(False)
+            fp.SetAttributes(fp.GetAttributes() | pcbnew.FP_EXCLUDE_FROM_BOM | pcbnew.FP_EXCLUDE_FROM_POS_FILES)
         else:
             board.Add(fp)
             fp.SetPosition(pt(place[:2]))
