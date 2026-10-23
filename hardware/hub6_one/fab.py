@@ -6,8 +6,8 @@ then copy the three files to upload into fab6/.
 
 Every part with an LCSC number is on the top side (Economic PCBA places one
 side only). The display cables are soldered into bare holes (J1-J6), which
-have no part; the XIAO is soldered by hand, hanging under the board on pin
-headers.
+have no part; the XIAO plugs by hand into its two sockets (J7, J8), which sit on
+the underside (so they need an assembly that places the bottom side too).
 """
 import csv
 import os
@@ -59,7 +59,9 @@ def main():
             x = pcbnew.ToMM(pos.x - origin.x)
             y = -pcbnew.ToMM(pos.y - origin.y)  # JLCPCB: y up
             rotation = (fp.GetOrientationDegrees() + JLC_ROTATION_OFFSET.get(footprint, 0)) % 360
-            w.writerow([fp.GetReference(), f"{x:.3f}mm", f"{y:.3f}mm", "Top", f"{rotation:.0f}"])
+            # the XIAO's sockets (J7, J8) sit on the underside; their rotation on JLCPCB's bottom side is not yet checked
+            side = "Bottom" if fp.GetLayer() == pcbnew.B_Cu else "Top"
+            w.writerow([fp.GetReference(), f"{x:.3f}mm", f"{y:.3f}mm", side, f"{rotation:.0f}"])
             # One row per LCSC part. JLCPCB merges rows with the same part
             # number itself and then repeats the designators (J1-J3 given
             # as three rows came back as nine), so never split a part.

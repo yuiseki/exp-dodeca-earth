@@ -3,10 +3,11 @@ PH2.0 8-pin) of one cup, with the XIAO ESP32-S3 on it: the alternative to rev C'
 
     PYTHONPATH=/usr/lib/python3/dist-packages:<venv site-packages, for shapely> /usr/bin/python3 make.py
 
-A regular pentagon whose edges face the cup's five side plates. The XIAO hangs under its middle on
-pin headers soldered through it, flat side up (its battery wires leave through the headers' gap),
-so seen from above its pins are mirrored. A 74HC138 between the XIAO's two rows of pins, on top,
-turns three XIAO pins into the six chip selects.
+A regular pentagon whose edges face the cup's five side plates. The XIAO hangs under it, flat side
+up (its battery wires leave through its pin headers' gap), plugged into two 8.5 mm female sockets
+on the underside (the same part as cubic-earth's hub3), so seen from above its pins are mirrored.
+It sits 3 mm off the middle toward 342 degrees, clear of the base display's plug below. A
+74HC138 between the sockets, on top, turns three XIAO pins into the six chip selects.
 
 - B.Cu: one ring per shared signal (3V3 innermost, then the five), and inside them the chip
   selects, routed between the XIAO's pins (router.py); GND fills the rest.
@@ -85,11 +86,13 @@ GND_VIA_R = 15.9  # each side row's GND pin also reaches the inner GND fill by a
 CS_ENTRY_R = 15.5  # each side row's chip select runs radially in to here, then to the chip
 
 # The XIAO hangs under the middle, its frame: +x toward 162 (the column D0..D6), +y toward 72,
-# centred XIAO_Y along y (off the middle so that J6's holes clear its end). Seen from above (it is
+# centred (XIAO_X, XIAO_Y) (off the middle so that it clears the base display's connector and J6's holes
+# clear its end). Seen from above (it is
 # mirrored, flat side up): D0..D6 up the +x column from the USB-C end (-y), 5V, GND, 3V3, D10..D7 up
 # the -x column.
 XIAO_PSI = 162
 XIAO_Y = -2.5
+XIAO_X = -3.0  # toward 342: in its 8.5 mm sockets the XIAO hangs low, and so clears the base display's plug
 XIAO_W, XIAO_L = 17.79, 21.145
 XIAO_COL = {**{f"D{k}": (7.62, -7.62 + 2.54 * k) for k in range(7)},
             **{n: (-7.62, -7.62 + 2.54 * k) for k, n in enumerate(["5V", "GND", "3V3", "D10", "D9", "D8", "D7"])}}
@@ -108,7 +111,7 @@ def xf(lx, ly):
 
 def xiao_pad(name):
     x, y = XIAO_COL[name]
-    return xf(x, y + XIAO_Y)
+    return xf(x + XIAO_X, y + XIAO_Y)
 
 
 # The base display's holes (J6): a 2x4 block, numbered like a DIP-8 (1-4 along the outer row, 5-8
@@ -136,19 +139,20 @@ def header_nets(d):
 # Which output selects which display is the router's choice (route_chip_selects), written to the
 # board; the nets here start without the outputs.
 U1_NETS = {1: "LCD_A0", 2: "LCD_A1", 3: "LCD_A2", 4: "GND", 5: "GND", 6: "+3V3", 8: "GND", 16: "+3V3"}
-CS_OUTPUT = {2: 9, 3: 10, 5: 11, 4: 12, 0: 13, 1: 14}  # display d -> U1 pin (pin 15 - n is Yn); Y0 (pin 15) and Y7 unused
+CS_OUTPUT = {3: 10, 5: 11, 4: 12, 0: 13, 1: 14, 2: 15}  # display d -> U1 pin (pin 15 - n is Yn); Y6 (pin 9) and Y7 unused
 
 # --- parts ------------------------------------------------------------------
 # ref: (symbol, value, footprint, LCSC part, pin -> net, placement)
 # placement: (x, y, rotation) in cup coordinates (rotation counter-clockwise, as KiCad's).
 SIDE_ROW_FP = f"{LIB}:Wire_1x08_P2.54_Tie"  # the side displays' rows, with two slots for a cable tie
 BASE_FP = f"{LIB}:Wire_2x04_P2.54"
-XIAO_FP = f"{LIB}:XIAO_ESP32S3_Hanging"
+XIAO_FP = f"{LIB}:XIAO_ESP32S3_Hanging"  # its outline only (board only, no pads)
+SOCKET_FP = "Connector_PinSocket_2.54mm:PinSocket_1x07_P2.54mm_Vertical"
 
 
 def u1_local(x, y):
     """U1's footprint frame to cup coordinates."""
-    return xf(x, y + U1_Y)
+    return xf(x + XIAO_X, y + U1_Y)
 
 
 PARTS = {}
@@ -157,13 +161,18 @@ for _d in range(5):
                            (*mul(W_R, e(W_THETA[_d])), (W_THETA[_d] + 90) % 360))
 PARTS["J6"] = (f"{LIB}:Cable_8P", DISPLAYS[5], BASE_FP, "", header_nets(5), (*mul(J6_U, e(J6_THETA)), J6_THETA - 90))
 PARTS.update({
-    # hand-soldered on two 1x7 pin headers, hanging under the board
-    "U2": (f"{LIB}:XIAO_ESP32S3", "XIAO ESP32S3", XIAO_FP, "", {XIAO_NUMBER[k]: v for k, v in XIAO_NETS.items()}, (*xf(0, XIAO_Y), XIAO_PSI)),
-    "U1": (f"{LIB}:74HC138", "74HC138", "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm", "C5602", U1_NETS, (*xf(0, U1_Y), XIAO_PSI)),
+    # The XIAO itself plugs in by hand: on the schematic only. It hangs under the board, flat side up,
+    # its pin headers in two 1x7 female sockets (8.5 mm) on the underside: J7 the D0..D6 column, J8
+    # the other (each socket's pins take the nets of the XIAO pins they hold, place_sockets).
+    "U2": (f"{LIB}:XIAO_ESP32S3", "XIAO ESP32S3", "", "", {XIAO_NUMBER[k]: v for k, v in XIAO_NETS.items()}, None),
+    "J7": (f"{LIB}:Socket_1x07", "XIAO D0-D6", SOCKET_FP, "C2832270", None, "socket"),
+    "J8": (f"{LIB}:Socket_1x07", "XIAO 5V-D7", SOCKET_FP, "C2832270", None, "socket"),
+    "X1": (None, "XIAO", XIAO_FP, "", {}, (*xf(XIAO_X, XIAO_Y), XIAO_PSI)),
+    "U1": (f"{LIB}:74HC138", "74HC138", "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm", "C2674688", U1_NETS, (*xf(XIAO_X, U1_Y), XIAO_PSI)),
     # bulk for the six displays (about 190mA) on the 3V3 line from the XIAO, and U1's decoupling
     # pad 1 of each on the 3V3 line, which runs 1.0 beyond the XIAO's 3V3 pin
-    "C2": ("Device:C", "10uF", "Capacitor_SMD:C_0805_2012Metric", "C15850", {1: "+3V3", 2: "GND"}, (*xf(-3.5, XIAO_Y - 2.54 - 1.0 - 0.95), XIAO_PSI - 90 + 180)),
-    "C3": ("Device:C", "100nF", "Capacitor_SMD:C_0603_1608Metric", "C14663", {1: "+3V3", 2: "GND"}, (*xf(1.0, XIAO_Y - 2.54 - 1.0 - 0.775), XIAO_PSI - 90 + 180)),
+    "C2": ("Device:C", "10uF", "Capacitor_SMD:C_0805_2012Metric", "C15850", {1: "+3V3", 2: "GND"}, (*xf(XIAO_X - 3.5, XIAO_Y - 2.54 - 1.0 - 0.95), XIAO_PSI - 90 + 180)),
+    "C3": ("Device:C", "100nF", "Capacitor_SMD:C_0603_1608Metric", "C14663", {1: "+3V3", 2: "GND"}, (*xf(XIAO_X + 1.0, XIAO_Y - 2.54 - 1.0 - 0.775), XIAO_PSI - 90 + 180)),
 })
 
 
@@ -245,6 +254,7 @@ def project_symbols():
     return {
         "74HC138": box_symbol("74HC138", "U", hc_left, hc_right),
         "Cable_8P": box_symbol("Cable_8P", "J", [(str(i), PH_PINS[i - 1], "passive") for i in range(1, 9)], [], width=5.08),
+        "Socket_1x07": box_symbol("Socket_1x07", "J", [(str(i), str(i), "passive") for i in range(1, 8)], [], width=5.08),
         "XIAO_ESP32S3": box_symbol("XIAO_ESP32S3", "U", [(str(XIAO_NUMBER[f"D{k}"]), f"D{k}", "bidirectional") for k in range(7)],
                                    [(str(XIAO_NUMBER[n]), n, "power_out" if n in ("5V", "GND", "3V3") else "bidirectional")
                                     for n in ("5V", "GND", "3V3", "D10", "D9", "D8", "D7")]),
@@ -301,20 +311,16 @@ def write_footprints():
     lines.append(")")
     with open(os.path.join(pretty, "Wire_2x04_P2.54.kicad_mod"), "w") as f:
         f.write("\n".join(lines) + "\n")
-    # The XIAO ESP32-S3 hanging under the board on two 1x7 pin headers (15.24 apart), flat side up:
-    # pads as seen from above (mirrored from Seeed's pinout), USB-C toward -y. Its outline on the
-    # back silkscreen, where it hangs.
+    # Where the XIAO ESP32-S3 hangs under the board in its two sockets (15.24 apart), flat side up,
+    # USB-C toward -y: its outline on B.Fab. No pads (the sockets have them), no courtyard.
     lines = ['(footprint "XIAO_ESP32S3_Hanging" (version 20240108) (generator "make.py") (layer "F.Cu")',
-             '(descr "Seeed XIAO ESP32-S3 hanging under the board on pin headers, flat side up (pins mirrored), USB-C toward -y")',
-             '(attr through_hole exclude_from_pos_files exclude_from_bom)',
+             '(descr "Outline of a Seeed XIAO ESP32-S3 hanging under the board in two 1x7 sockets, flat side up, USB-C toward -y")',
+             '(attr board_only exclude_from_pos_files exclude_from_bom)',
              '(property "Reference" "REF**" (at 0 -12 0) (layer "F.Fab") (hide yes) (effects (font (size 1 1) (thickness 0.15))))',
              '(property "Value" "XIAO" (at 0 0 0) (layer "F.Fab") (hide yes) (effects (font (size 1 1) (thickness 0.15))))',
-             f'(fp_rect (start {-XIAO_W / 2:.3f} {-XIAO_L / 2:.3f}) (end {XIAO_W / 2:.3f} {XIAO_L / 2:.3f}) (stroke (width 0.12) (type default)) (fill none) (layer "B.SilkS"))',
-             f'(fp_rect (start -4.5 {-XIAO_L / 2 - 1.3:.3f}) (end 4.5 {-XIAO_L / 2:.3f}) (stroke (width 0.12) (type default)) (fill none) (layer "B.SilkS"))',
-             f'(fp_rect (start {-XIAO_W / 2:.3f} {-XIAO_L / 2 - 1.3:.3f}) (end {XIAO_W / 2:.3f} {XIAO_L / 2:.3f}) (stroke (width 0.05) (type default)) (fill none) (layer "B.CrtYd"))',
-             '(fp_text user "XIAO (under, flat side up)" (at 0 -9.2 0) (layer "B.SilkS") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))']
-    for name, (x, y) in XIAO_COL.items():
-        lines.append(f'(pad "{XIAO_NUMBER[name]}" thru_hole circle (at {x:.2f} {y:.2f}) (size 1.6 1.6) (drill 1.0) (layers "*.Cu" "*.Mask") (remove_unused_layers no))')
+             f'(fp_rect (start {-XIAO_W / 2:.3f} {-XIAO_L / 2:.3f}) (end {XIAO_W / 2:.3f} {XIAO_L / 2:.3f}) (stroke (width 0.12) (type default)) (fill none) (layer "B.Fab"))',
+             f'(fp_rect (start -4.5 {-XIAO_L / 2 - 1.3:.3f}) (end 4.5 {-XIAO_L / 2:.3f}) (stroke (width 0.12) (type default)) (fill none) (layer "B.Fab"))',
+             '(fp_text user "XIAO (under, flat side up)" (at 0 -9.2 0) (layer "B.Fab") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))']
     lines.append(")")
     with open(os.path.join(pretty, "XIAO_ESP32S3_Hanging.kicad_mod"), "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -324,7 +330,7 @@ def write_footprints():
 
 # on the 2.54mm grid so every pin lands on the connection grid
 SCH_POS = {ref: (round(x / 2.54) * 2.54, round(y / 2.54) * 2.54) for ref, (x, y) in
-           {"U2": (40, 70), "C2": (110, 70), "C3": (130, 70), "U1": (175, 70),
+           {"U2": (40, 70), "J7": (15, 70), "J8": (75, 70), "C2": (110, 70), "C3": (130, 70), "U1": (175, 70),
             "J1": (30, 150), "J2": (75, 150), "J3": (120, 150), "J4": (165, 150), "J5": (210, 150), "J6": (255, 150)}.items()}
 
 
@@ -341,13 +347,15 @@ def write_schematic(libs, nets_of):
            f'(title_block (title "dodecahedron-earth {NAME}") (rev "{REV}") (comment 1 "XIAO ESP32-S3 + 74HC138 + 6 soldered cables (PH2.0 at the display) to 1.28 inch round LCDs"))',
            "(lib_symbols", *libs.values(), ")"]
     for ref, (lib_id, value, fp, lcsc, _, _) in PARTS.items():
+        if lib_id is None:
+            continue  # board only (the XIAO's outline)
         nets = nets_of[ref]
         x, y = SCH_POS[ref]
         pins = pins_of(libs[lib_id])
         props = [("Reference", ref, 0, -1), ("Value", value, 0, 1), ("Footprint", fp, 0, 0), ("Datasheet", "", 0, 0)]
         if lcsc:
             props.append(("LCSC", lcsc, 0, 0))
-        out.append(f'(symbol (lib_id "{lib_id}") (at {x:.2f} {y:.2f} 0) (unit 1) (exclude_from_sim no) (in_bom {"yes" if lcsc else "no"}) (on_board yes) (dnp no) (uuid "{uid()}")')
+        out.append(f'(symbol (lib_id "{lib_id}") (at {x:.2f} {y:.2f} 0) (unit 1) (exclude_from_sim no) (in_bom {"yes" if lcsc else "no"}) (on_board {"yes" if fp else "no"}) (dnp no) (uuid "{uid()}")')
         top = min(-py for _, py in pins.values()) + y
         bottom = max(-py for _, py in pins.values()) + y
         for pname, pval, _, where in props:
@@ -397,6 +405,37 @@ def load_fp(fp_id):
     return fp
 
 
+def place_socket(board, fp, ref):
+    """J7 (the D0..D6 column) or J8 on the underside, its pins on the XIAO pins of that column.
+    Returns pin number -> XIAO pin name."""
+    names = [n for n, (x, _) in XIAO_COL.items() if (x > 0) == (ref == "J7")]
+    targets = [xiao_pad(n) for n in names]
+    board.Add(fp)
+    fp.SetPosition(pt((0.0, 0.0)))
+    fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+    for rot in (0, 90, 180, 270):
+        fp.SetOrientationDegrees((XIAO_PSI + rot) % 360)
+        cs = [cup(p.GetPosition()) for p in fp.Pads()]
+        if len({round(uv(XIAO_PSI, q)[0], 2) for q in cs}) == 1:  # the pins in a line along the column
+            break
+    cx = sum(q[0] for q in cs) / len(cs) - sum(t[0] for t in targets) / len(targets)
+    cy = sum(q[1] for q in cs) / len(cs) - sum(t[1] for t in targets) / len(targets)
+    fp.SetPosition(pt(add(cup(fp.GetPosition()), (-cx, -cy))))
+    out = {}
+    for p in fp.Pads():
+        c = cup(p.GetPosition())
+        name = min(names, key=lambda n: math.dist(xiao_pad(n), c))
+        assert math.dist(xiao_pad(name), c) < 0.01, (ref, p.GetNumber())
+        out[int(p.GetNumber())] = name
+    return out
+
+
+def socket_nets(ref):
+    """J7's or J8's pin number -> net (the net of the XIAO pin it holds; None if that pin is unused)."""
+    fp = load_fp(SOCKET_FP)
+    return {k: XIAO_NETS.get(n) for k, n in place_socket(pcbnew.BOARD(), fp, ref).items()}
+
+
 def write_board(libs, nets_of, plan):
     board = pcbnew.BOARD()
     board.SetCopperLayerCount(2)
@@ -420,6 +459,8 @@ def write_board(libs, nets_of, plan):
         return nets[name]
 
     for ref, (lib_id, value, fp_id, lcsc, _, place) in PARTS.items():
+        if not fp_id:
+            continue
         fp = load_fp(fp_id)
         fp.SetReference(ref)
         fp.SetValue(value)
@@ -431,11 +472,17 @@ def write_board(libs, nets_of, plan):
         if fp_id in (SIDE_ROW_FP, BASE_FP):
             fp.Reference().SetVisible(False)  # a label of our own, below
             fp.Value().SetVisible(False)
-        if ref in ("C2", "C3", "U1", "U2"):
+        if ref in ("C2", "C3", "U1", "J7", "J8", "X1"):
             fp.Reference().SetVisible(False)  # see the schematic
-        board.Add(fp)
-        fp.SetPosition(pt(place[:2]))
-        fp.SetOrientationDegrees(place[2] % 360)
+        if place == "socket":
+            place_socket(board, fp, ref)
+            fp.Value().SetVisible(False)
+        else:
+            board.Add(fp)
+            fp.SetPosition(pt(place[:2]))
+            fp.SetOrientationDegrees(place[2] % 360)
+        if lib_id is None:
+            continue
         names = pin_names(libs[lib_id])
         for pad in fp.Pads():
             num = pad.GetNumber()
@@ -461,7 +508,7 @@ def write_board(libs, nets_of, plan):
     labels += [(f"J{d + 1} {DISPLAYS[d]}", mul(W_R - 2.0, e(W_THETA[d])), pcbnew.B_SilkS, along(W_THETA[d])) for d in range(5)]
     labels += [("BASE", frame(J6_THETA, J6_U, -6.6), pcbnew.F_SilkS, along(J6_THETA + 90)),
                ("J6 base", frame(J6_THETA, J6_U, -6.6), pcbnew.B_SilkS, along(J6_THETA + 90)),
-               (f"hub6_one rev {REV}", mul(12.5, e(342)), pcbnew.B_SilkS, along(342))]
+               (f"hub6_one rev {REV}", mul(13.5, e(18)), pcbnew.B_SilkS, along(18))]
     for text, p, layer, angle in labels:
         t = pcbnew.PCB_TEXT(board)
         t.SetText(text)
@@ -626,7 +673,9 @@ def plan_chip_selects():
     shapes = [(LineString(pts).buffer(w / 2, 4), n) for n, pts, w in lines] + [(Point(p).buffer(VIA_D / 2, 8), n) for n, p in vias]
     pads = [(row_pad(d, k), 0.85, header_nets(d)[k]) for d in range(5) for k in range(1, 9)]
     pads += [(j6_pad(k), 0.85, header_nets(5)[k]) for k in range(1, 9)]
-    pads += [(xiao_pad(n), 0.8, XIAO_NETS.get(n, n)) for n in XIAO_COL]
+    # the sockets' pads: 1.7 mm, pin 1 square (its corners reach 0.85 x sqrt 2)
+    square = {place_socket(pcbnew.BOARD(), load_fp(SOCKET_FP), ref)[1] for ref in ("J7", "J8")}
+    pads += [(xiao_pad(n), 0.85 * (math.sqrt(2) if n in square else 1.0), XIAO_NETS.get(n, n)) for n in XIAO_COL]
     shapes += [(Point(c).buffer(r, 8), n) for c, r, n in pads]
     y_via = {p: u1_local(Y_VIA_X, 4.445 - 1.27 * (p - 9)) for p in range(9, 16)}
 
@@ -651,7 +700,7 @@ def plan_chip_selects():
     waypoints = []
     for sx in (7.62, -7.62):
         for k in range(6):
-            waypoints.append(xf(sx, -6.35 + 2.54 * k + XIAO_Y))
+            waypoints.append(xf(sx + XIAO_X, -6.35 + 2.54 * k + XIAO_Y))
     # the target pad (J6 pin 5) is not an obstacle for its own path
     j6_cs = j6_pad(5)
     obstacles = [o for o in obstacles if math.dist(o[0], j6_cs) > 1e-6]
@@ -660,9 +709,9 @@ def plan_chip_selects():
     cands[5] = [j6_cs]
     print("lane candidates:", {d: len(c) for d, c in cands.items()}, flush=True)
     # The outputs in the order the lines leave round the chip (seen from above, counter-clockwise
-    # in the XIAO's frame from the -y end of the output side): plate 2 round the -y end, plate 1,
-    # plate 5, the base, plate 4 and plate 3 round the +y end; so no two cross. The lines that leave
-    # straight go first.
+    # in the XIAO's frame from the -y end of the output side): plate 3 and plate 2 round the -y end
+    # (the USB-C end), plate 1, plate 5, the base, plate 4 round the +y end; so no two cross. The
+    # lines that leave straight go first.
     order = [0, 4, 5, 1, 3, 2]
     chosen = {}
 
@@ -761,7 +810,7 @@ def write_project():
     with open(os.path.join(HERE, "fp-lib-table"), "w") as f:
         f.write('(fp_lib_table (version 7)\n'
                 f'  (lib (name "{LIB}") (type "KiCad") (uri "${{KIPRJMOD}}/{LIB}.pretty") (options "") (descr ""))\n')
-        for lib in ("Capacitor_SMD", "Package_SO"):
+        for lib in ("Capacitor_SMD", "Connector_PinSocket_2.54mm", "Package_SO"):
             f.write(f'  (lib (name "{lib}") (type "KiCad") (uri "${{KICAD10_FOOTPRINT_DIR}}/{lib}.pretty") (options "") (descr ""))\n')
         f.write(")\n")
 
@@ -772,7 +821,7 @@ def main():
     write_symbol_lib(symbols)
     write_footprints()
     write_project()
-    nets_of = {ref: dict(p[4]) for ref, p in PARTS.items()}
+    nets_of = {ref: dict(p[4]) if p[4] is not None else socket_nets(ref) for ref, p in PARTS.items()}
     plan = plan_chip_selects()
     for d, pin in plan["output"].items():
         nets_of["U1"][pin] = f"LCD_CS{d}"
