@@ -511,6 +511,22 @@ def write_board(libs, nets_of, plan):
     labels += [("BASE", frame(J6_THETA, J6_U, -6.6), pcbnew.F_SilkS, along(J6_THETA + 90)),
                ("J6 base", frame(J6_THETA, J6_U, -6.6), pcbnew.B_SilkS, along(J6_THETA + 90)),
                (f"hub6_one rev {REV}", mul(13.5, e(18)), pcbnew.B_SilkS, along(18))]
+    # Every cable hole's signal (PH_PINS), on both sides: a wire in the wrong hole is the easy
+    # mistake. Side rows: just outside each hole, reading outward. J6: outward of its outer row and
+    # inward of its inner row, reading along J6_THETA.
+    def radial(theta):
+        a = theta % 360
+        return a - 180 if 90 < a <= 270 else a
+    for d in range(5):
+        for k in range(1, 9):
+            q = add(row_pad(d, k), mul(2.25, e(W_THETA[d])))
+            for layer in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+                labels.append((PH_PINS[k - 1], q, layer, radial(W_THETA[d])))
+    for k in range(1, 9):
+        u, v = uv(J6_THETA, j6_pad(k))
+        q = frame(J6_THETA, u + (2.25 if u > J6_U else -2.25), v)
+        for layer in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            labels.append((PH_PINS[k - 1], q, layer, radial(J6_THETA)))
     for text, p, layer, angle in labels:
         t = pcbnew.PCB_TEXT(board)
         t.SetText(text)
