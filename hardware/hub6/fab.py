@@ -5,8 +5,8 @@ files to upload into fab6/.
     /usr/bin/python3 fab.py
 
 Every part with an LCSC number is on the top side (Economic PCBA places one
-side only). The display cables are soldered into bare rows of holes (J1-J6),
-which have no part. The XIAO itself is plugged in by hand.
+side only). The display cables are soldered into bare holes (J1-J6), which
+have no part; J7, the header to board B, is soldered by hand.
 """
 import csv
 import os
@@ -18,7 +18,7 @@ import pcbnew
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "build", "fab")
 PCB = os.path.join(HERE, "hub6.kicad_pcb")
-LAYERS = "F.Cu,In1.Cu,In2.Cu,B.Cu,F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts"
+LAYERS = "F.Cu,B.Cu,F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts"
 # JLCPCB's zero rotation differs from KiCad's for some footprints. Seen in
 # JLCPCB's placement preview for the cubic-earth hub3 (2026-10-19): the
 # SOIC-16 at KiCad's 90 showed up standing on end, pin 1 at the lower right;
