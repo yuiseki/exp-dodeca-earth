@@ -172,7 +172,7 @@ PARTS.update({
     "U1": (f"{LIB}:74HC138", "74HC138", "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm", "C2674688", U1_NETS, (*xf(XIAO_X, U1_Y), XIAO_PSI)),
     # bulk for the six displays (about 190mA) on the 3V3 line from the XIAO, and U1's decoupling
     # pad 1 of each on the 3V3 line, which runs 1.0 beyond the XIAO's 3V3 pin
-    "C2": ("Device:C", "10uF", "Capacitor_SMD:C_0805_2012Metric", "C15850", {1: "+3V3", 2: "GND"}, (*xf(XIAO_X - 3.5, XIAO_Y - 2.54 - 1.0 - 0.95), XIAO_PSI - 90 + 180)),
+    "C2": ("Device:C", "10uF", "Capacitor_SMD:C_0805_2012Metric", "C15850", {1: "+3V3", 2: "GND"}, (*xf(XIAO_X - 2.3, XIAO_Y - 2.54 - 1.0 - 0.95), XIAO_PSI - 90 + 180)),
     "C3": ("Device:C", "100nF", "Capacitor_SMD:C_0603_1608Metric", "C14663", {1: "+3V3", 2: "GND"}, (*xf(XIAO_X + 1.0, XIAO_Y - 2.54 - 1.0 - 0.775), XIAO_PSI - 90 + 180)),
 })
 
@@ -527,6 +527,25 @@ def write_board(libs, nets_of, plan):
         q = frame(J6_THETA, u + (2.25 if u > J6_U else -2.25), v)
         for layer in (pcbnew.F_SilkS, pcbnew.B_SilkS):
             labels.append((PH_PINS[k - 1], q, layer, radial(J6_THETA)))
+    # The XIAO goes in two 1x7 sockets: turned round it fits as well, so mark which end its USB-C
+    # goes (an outline of the USB-C beyond the XIAO's end, and words) and each socket pin's name,
+    # between the two sockets, on both sides.
+    for n, (x, y) in XIAO_COL.items():
+        q = xf(x + XIAO_X - math.copysign(2.9, x), y + XIAO_Y)
+        for layer in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            labels.append((n, q, layer, radial(XIAO_PSI)))
+    usb_y = XIAO_Y - XIAO_L / 2
+    for layer in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+        labels.append(("XIAO USB-C", xf(XIAO_X, usb_y + 1.6), layer, radial(XIAO_PSI)))
+        corners_usb = [xf(XIAO_X + sx * 4.5, usb_y - sy) for sx, sy in ((-1, 0), (1, 0), (1, 1.3), (-1, 1.3))]
+        for a0, a1 in zip(corners_usb, corners_usb[1:] + corners_usb[:1]):
+            seg = pcbnew.PCB_SHAPE(board)
+            seg.SetShape(pcbnew.SHAPE_T_SEGMENT)
+            seg.SetStart(pt(a0))
+            seg.SetEnd(pt(a1))
+            seg.SetLayer(layer)
+            seg.SetWidth(mm(0.15))
+            board.Add(seg)
     for text, p, layer, angle in labels:
         t = pcbnew.PCB_TEXT(board)
         t.SetText(text)
