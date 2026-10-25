@@ -4,3 +4,9 @@ __pycache__/
 tmp/
 firmware/*/build/
 firmware/hub6_bench/earth_faces.h
+# Waveshare's 3D drawing of the LCD module (not ours to redistribute; see README)
+3d/display/
+# Meshes that include the LCD module from that drawing
+simulate/*/overlay.stl
+simulate/*/overlay.3mf
+simulate/*/dodecahedron*.3mf
