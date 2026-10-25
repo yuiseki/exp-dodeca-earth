@@ -26,7 +26,7 @@ def fetch(base, cache, z, x, y):
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # Python's default User-Agent is refused (403) by the tile server's front end; curl's is not.
-        req = urllib.request.Request(f"{base.rstrip('/')}/{z}/{x}/{y}.png", headers={"User-Agent": "exp-dodecahedron-earth/make_tile_mosaic"})
+        req = urllib.request.Request(f"{base.rstrip('/')}/{z}/{x}/{y}.png", headers={"User-Agent": "exp-dodeca-earth/make_tile_mosaic"})
         with urllib.request.urlopen(req, timeout=60) as r:
             data = r.read()
         with open(path + ".part", "wb") as f:
