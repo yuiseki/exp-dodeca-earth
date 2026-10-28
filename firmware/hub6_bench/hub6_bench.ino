@@ -8,8 +8,8 @@
 //   All six displays share DIN, CLK, DC, RST and BL; the 74HC138's output Yn is the CS of one display.
 //
 // Serial (USB, 115200):
-//   e        earth (the default): each display shows its part of the globe (earth_faces.h), and stays
-//   i        identity: each display shows its name, its 74HC138 address and a colour, and stays
+//   i        identity (the default): each display shows its name, its 74HC138 address and a colour, and stays
+//   e        earth: each display shows its part of the globe (earth_faces.h), and stays
 //   b        benchmark: full-screen fills on all six in turn, frames/s printed
 //   f <MHz>  SPI clock for the next boot (80, 40, 27, 20, 16, 10), saved, then restarts
 //   r <d>    send display d (0 = P1 .. 5 = BASE) its init sequence again and redraw it, the others untouched
@@ -102,7 +102,7 @@ class LGFX : public lgfx::LGFX_Device {
 LGFX lcd;
 Preferences prefs;
 uint32_t spi_hz;
-enum Mode { EARTH, IDENTITY, BENCHMARK } mode = EARTH;
+enum Mode { EARTH, IDENTITY, BENCHMARK } mode = IDENTITY;
 
 void select(uint8_t address) {
   lcd.waitDMA();  // never change the address while a transfer runs
@@ -192,8 +192,6 @@ void setup() {
   delay(500);  // the USB serial port comes up after a moment
   Serial.printf("hub6_bench: %d displays, SPI %.2f MHz (asked for), e/i/b/f <MHz>/r <d>\n", NUM_DISPLAYS, spi_hz / 1e6);
   showIdentity();
-  delay(3000);
-  showEarth();
 }
 
 void handleSerial() {
