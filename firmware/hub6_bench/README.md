@@ -1,6 +1,6 @@
 # hub6_bench
 
-hub6 の基板を発注する前に、XIAO ESP32-S3 1 枚と 74HC138 で、1.28 インチ丸型 LCD (GC9A01、Waveshare 1.28inch LCD Module) 6 枚を本当に駆動できるかを、ブレッドボードで確かめるスケッチ。ピンの割り当ては hub6 の基板 (`hardware/hub6/README.md`) と同じ。
+XIAO ESP32-S3 1 枚と 74HC138 で、1.28 インチ丸型 LCD (GC9A01、Waveshare 1.28inch LCD Module) 6 枚を駆動するスケッチ。既定では、発注した基板 hub6_one (`hardware/hub6_one`) のピンの割り当てでビルドする。基板を発注する前に 6 枚を駆動できるかを確かめたブレッドボード (ピンの割り当ては hub6 の README と同じ) 用には、`HUB6_BREADBOARD` を定義してビルドする (下の「ビルドと書き込み」)。
 
 ## ビルドと書き込み
 
@@ -26,9 +26,35 @@ arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3 --output-dir build .
 arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32S3 --input-dir build -p /dev/ttyACM0   # ポートは arduino-cli board list で
 ```
 
+ブレッドボード用は、compile に `--build-property "compiler.cpp.extra_flags=-DHUB6_BREADBOARD"` を足す。
+
 ライブラリは M5GFX (0.2.32 で確認。中の LovyanGFX の `Panel_GC9A01` を使う)。ESP32 の Arduino core は 3.3.12 で確認。
 
-## 配線
+## hub6_one の割り当て
+
+基板の配線で決まっている (`hardware/hub6_one/make.py` の `XIAO_NETS` と `CS_OUTPUT`)。
+
+| 信号 | XIAO |
+|---|---|
+| DIN | D5 |
+| CLK | D4 |
+| DC | D3 |
+| RST | D2 |
+| BL | D1 |
+| 74HC138 の A0、A1、A2 | D10、D9、D8 |
+
+| ディスプレイ | 74HC138 の出力 | アドレス |
+|---|---|---|
+| P1 | 13 (Y2) | 2 |
+| P2 | 14 (Y1) | 1 |
+| P3 | 15 (Y0) | 0 |
+| P4 | 10 (Y5) | 5 |
+| P5 | 12 (Y3) | 3 |
+| BASE | 11 (Y4) | 4 |
+
+Y6 と Y7 は何にもつながっていない。アドレス 7 で、どの画面も選ばない。XIAO の D0、D6、D7 は使わない。
+
+## ブレッドボードの配線
 
 電源はすべて XIAO の 3V3 から取る (ディスプレイの VCC は 3.3V。理由は hub6 の README)。XIAO の 5V は使わない。
 
