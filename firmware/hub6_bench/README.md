@@ -10,6 +10,8 @@ XIAO ESP32-S3 1 枚と 74HC138 で、1.28 インチ丸型 LCD (GC9A01、Waveshar
 ../../.venv/bin/python make_earth_faces.py ../../../exp-cubic-earth/lt7680_earth/blue_marble_2002.jpg --preview earth.png
 ```
 
+どのディスプレイがどの板に載っているかは `--board` で選ぶ。既定の `hub6_one` は、XIAO をお椀の口の側に向けて基板を裏返して使う置き方で、ケーブルの列が板に鏡の順で届く。底の外から見て P1〜P5 が反時計回りに並び、BASE の画面の上が P2 を向く (2026-11-05 に実物で確認)。`--board model` は 3D モデルの番号どおり (`make_earth_faces.py` の `PLACEMENT`)。
+
 自前のタイルサーバーの地図 (Web メルカトルのラスタータイル) なら、ズーム 4 の 256 枚をつないで正距円筒に直してから使う。北緯 85 度より北と南緯 85 度より南はタイルに無いので、85 度の行の色を引き伸ばす:
 
 ```sh
