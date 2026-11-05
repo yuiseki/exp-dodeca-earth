@@ -50,6 +50,10 @@ arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32S3 --input-dir build -p /dev/tty
 
 AP を待つのは 15 秒。pi5-w-1 は、鍵の交換から 3 秒後に IP を渡したことがあり、中継と同じ 8 秒では、その直前で諦めていた (2026-11-05)。
 
+XIAO ESP32-S3 には基板のアンテナが無く、U.FL のアンテナを挿して使う。挿し忘れても ESP-NOW は近くならときどき届くので、気づきにくい。そのときのログは、スキャンで見える AP が 2〜4 個 (アンテナありなら 15 個ほど)、`wifi: joining pi5-w-1 (rssi 0 ...)` か `wifi: disconnected, reason 2` (認証の応答が来ない) の繰り返し、`wifi: no AP from secrets.h joined`。アンテナを挿すと rssi -60 前後でつながった (2026-11-05)。
+
+AP につながらないあいだも、Wi-Fi は裏でつなぎ直そうとし続け、チャンネルを AP のもの (pi5-w-1 なら 6) に戻す。そのため `ESPNOW_CHANNEL` に合わせたつもりでも合っていないことがある。いまのチャンネルは `w` で聞ける (`wifi: no AP, channel 6 (asked for 1)`)。
+
 ## hub6_one の割り当て
 
 基板の配線で決まっている (`hardware/hub6_one/make.py` の `XIAO_NETS` と `CS_OUTPUT`)。
