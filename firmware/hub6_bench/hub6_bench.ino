@@ -174,8 +174,11 @@ bool joinWiFi() {
     for (int i = 0; i < n; i++) anySeen = anySeen || WiFi.SSID(i) == aps[a].ssid;
   for (int a = 0; a < nAps; a++) {
     bool seen = false;
-    for (int i = 0; i < n; i++) seen = seen || WiFi.SSID(i) == aps[a].ssid;
+    int rssi = 0;
+    for (int i = 0; i < n; i++)
+      if (WiFi.SSID(i) == aps[a].ssid) seen = true, rssi = WiFi.RSSI(i);
     if (anySeen && !seen) continue;
+    Serial.printf("wifi: joining %s (rssi %d in the scan; %d APs seen)\n", aps[a].ssid, seen ? rssi : 0, n);
     WiFi.begin(aps[a].ssid, aps[a].pass);
     uint32_t t0 = millis();
     // 15 s: pi5-w-1 handed out the address 3 s after the handshake, and 8 s (espnow_bridge) gave up just before
@@ -199,6 +202,9 @@ void setupEspnow() {
   espnowQueue = xQueueCreate(8, sizeof(EspnowLine));
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // fewer lost packets (espnow_bridge)
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    Serial.printf("wifi: disconnected, reason %u\n", info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   esp_wifi_get_mac(WIFI_IF_STA, myMac);
   if (!joinWiFi()) esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
   if (esp_now_init() != ESP_OK) {
