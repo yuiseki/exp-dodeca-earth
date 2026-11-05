@@ -19,9 +19,13 @@ XIAO ESP32-S3 1 枚と 74HC138 で、1.28 インチ丸型 LCD (GC9A01、Waveshar
 ../../.venv/bin/python make_earth_faces.py ../../tmp/osm-liberty-equirect.png --preview earth.png
 ```
 
-そのあと:
+そのあと、無線 (ESP-NOW) を使うなら `secrets.h` を作る。中身は exp-cubic-earth の `espnow_bridge/secrets.h` と同じ AP の並びにする (`secrets.h.example`、git には入れない)。無ければ AP にはつながず、ESP-NOW はチャンネル 1 で待つ:
 
-テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py`。
+```sh
+cp ../../../exp-cubic-earth/espnow_bridge/secrets.h secrets.h
+```
+
+テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py` と `g++ -std=c++17 -Wall -Wextra -I. test/test_espnow_cmd.cpp -o /tmp/t && /tmp/t`。
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3 --output-dir build .
@@ -31,6 +35,20 @@ arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32S3 --input-dir build -p /dev/tty
 ブレッドボード用は、compile に `--build-property "compiler.cpp.extra_flags=-DHUB6_BREADBOARD"` を足す。
 
 ライブラリは M5GFX (0.2.32 で確認。中の LovyanGFX の `Panel_GC9A01` を使う)。ESP32 の Arduino core は 3.3.12 で確認。
+
+## 無線 (ESP-NOW)
+
+母艦などに挿した exp-cubic-earth の `espnow_bridge` から、シリアルと同じ命令を送れる。起動して番号の画面を出したあと、`secrets.h` の AP (pi5-w-1 が先頭) につなぎ、ESP-NOW をその AP のチャンネルに相乗りさせる。中継も同じ並びで同じ AP につなぐので、チャンネルがそろう。起動のログに `wifi: pi5-w-1, channel 6` と `espnow: <MAC>, channel 6 (the AP's)` が出る。
+
+中継に送る行と、受けるもの:
+
+- `!E8:F6:0A:8D:28:D8 e`: この XIAO だけに送る。行全体を命令として受ける。ACK が返る
+- `@dodeca e`: 全員に送る。正十二面体は `@dodeca ` のあとを命令として受ける
+- `#b` などの四角い地球の命令: 全員に届くが、正十二面体は受けない。`#b` の `b` や `#f…` の `f` を自分の命令と取り違えないため (`espnow_cmd.h`)
+
+命令の出力は、USB のシリアルに出すのに加えて、送り主にだけ 1 行ずつ返す。中継には `rx <MAC>: earth` のように出る。全員には送らない。
+
+AP を待つのは 15 秒。pi5-w-1 は、鍵の交換から 3 秒後に IP を渡したことがあり、中継と同じ 8 秒では、その直前で諦めていた (2026-11-05)。
 
 ## hub6_one の割り当て
 

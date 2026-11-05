@@ -10,3 +10,4 @@ firmware/hub6_bench/earth_faces.h
 simulate/*/overlay.stl
 simulate/*/overlay.3mf
 simulate/*/dodecahedron*.3mf
+firmware/hub6_bench/secrets.h
