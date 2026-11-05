@@ -25,7 +25,7 @@ XIAO ESP32-S3 1 枚と 74HC138 で、1.28 インチ丸型 LCD (GC9A01、Waveshar
 cp ../../../exp-cubic-earth/espnow_bridge/secrets.h secrets.h
 ```
 
-テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py` と `g++ -std=c++17 -Wall -Wextra -I. test/test_espnow_cmd.cpp -o /tmp/t && /tmp/t`。
+テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py` と `g++ -std=c++17 -Wall -Wextra -I. test/test_espnow_cmd.cpp -o /tmp/t && /tmp/t` (`test_wifi_status.cpp` も同じ形で)。
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3 --output-dir build .
@@ -140,6 +140,7 @@ XIAO の D2、D6、D10 は使わない。
 | `i` | 名前の表示 (2 の画面、起動したときの画面) にして止める |
 | `e` | 地球の表示 (3 の画面) にして止める |
 | `b` | 塗りつぶしの試験 |
+| `w` | 無線の状態を 1 行で返す。AP につながっていれば AP の名前、チャンネル、受信の強さ (rssi)、IP。つながっていなければ、いまのチャンネルと、ファームが合わせようとしたチャンネル (`ESPNOW_CHANNEL`)。どちらも起動からの秒数つき |
 | `f 20` | SPI のクロックを 20MHz にする (80、40、27、20、16、10 から選ぶ)。保存して再起動する。既定は 20MHz (ブレッドボードで 6 枚が安定した上限) |
 
 ## 確かめること

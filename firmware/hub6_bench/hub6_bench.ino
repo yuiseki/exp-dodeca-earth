@@ -11,6 +11,7 @@
 //   i        identity (the default): each display shows its name, its 74HC138 address and a colour, and stays
 //   e        earth: each display shows its part of the globe (earth_faces.h), and stays
 //   b        benchmark: full-screen fills on all six in turn, frames/s printed
+//   w        wifi: the AP, channel, rssi and address, or the channel the radio is on without one (wifi_status.h)
 //   f <MHz>  SPI clock for the next boot (80, 40, 27, 20, 16, 10), saved, then restarts
 //   r <d>    send display d (0 = P1 .. 5 = BASE) its init sequence again and redraw it, the others untouched
 //
@@ -34,6 +35,7 @@
 #include <stdarg.h>
 
 #include "espnow_cmd.h"
+#include "wifi_status.h"
 #if __has_include("secrets.h")
 #include "secrets.h"  // WIFI_APS (secrets.h.example; not in git)
 #endif
@@ -327,6 +329,15 @@ void handleLine(const char *buf) {
     } else if (buf[0] == 'i') {
       mode = IDENTITY;
       showIdentity();
+    } else if (buf[0] == 'w') {
+      uint8_t ch = 0;
+      wifi_second_chan_t ch2;
+      esp_wifi_get_channel(&ch, &ch2);
+      bool joined = WiFi.status() == WL_CONNECTED;
+      char line[120];
+      wifiStatusLine(line, sizeof line, joined, joined ? WiFi.SSID().c_str() : "", ch, ESPNOW_CHANNEL,
+                     joined ? (int)WiFi.RSSI() : 0, WiFi.localIP().toString().c_str(), millis() / 1000);
+      say("%s", line);
     } else if (buf[0] == 'b') {
       mode = BENCHMARK;
       say("benchmark");
