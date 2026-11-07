@@ -124,9 +124,10 @@ def xiao_pad(name):
     return xf(x + XIAO_X, y + XIAO_Y)
 
 
-# The base display's holes (J6): a 2x4 block, numbered like a DIP-8 (1-4 along the outer row, 5-8
-# back along the inner one, 8 behind 1), facing the corner at 90 degrees, beyond the XIAO's far end
-# (away from its USB-C).
+# The base display's holes (J6): a 2x4 block, numbered zigzag along it (odd pins on the outer row, even on the inner,
+# 1 and 2 at one end, 7 and 8 at the other), so the cable's eight wires go in in their own order. Rev D numbered it
+# like a DIP-8 (1-4 out, 5-8 back): the cable's two ends, VCC and BL, met side by side and the wires twisted.
+# It faces the corner at 90 degrees, beyond the XIAO's far end (away from its USB-C).
 J6_THETA, J6_U = 90, 12.5
 CORNER_U = 16.0  # the lines from J6 and the XIAO gather here, 1 mm apart, then run straight out to their rings
 CLEAR_U = 1.1    # first, every line runs straight out until it is this far beyond its pads' centre line
@@ -308,12 +309,11 @@ def write_footprints():
     lines.append(")")
     with open(os.path.join(pretty, "Wire_1x08_P2.80.kicad_mod"), "w") as f:
         f.write("\n".join(lines) + "\n")
-    # The base display's cable in a 2x4 block of the same holes, numbered like a DIP-8: 1-4 along
-    # the -y row from -x, 5-8 back along the +y row (8 behind 1). Pin 1 marked on the silkscreen.
-    pos = {1: (-3.81, -1.27), 2: (-1.27, -1.27), 3: (1.27, -1.27), 4: (3.81, -1.27),
-           5: (3.81, 1.27), 6: (1.27, 1.27), 7: (-1.27, 1.27), 8: (-3.81, 1.27)}
+    # The base display's cable in a 2x4 block of the same holes, numbered zigzag (J6_LOCAL): odd pins
+    # along the -y row from -x, even ones along the +y row. Pin 1 marked on the silkscreen.
+    pos = J6_LOCAL
     lines = ['(footprint "Wire_2x04_P2.54" (version 20240108) (generator "make.py") (layer "F.Cu")',
-             '(descr "Eight holes for a cable\'s bare 26 AWG wires in two rows of four, numbered like a DIP-8")',
+             '(descr "Eight holes for a cable\'s bare 26 AWG wires in two rows of four, numbered zigzag")',
              '(attr through_hole exclude_from_pos_files exclude_from_bom)',
              '(property "Reference" "REF**" (at 0 -3.2 0) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))',
              '(property "Value" "Cable_8P" (at 0 3.2 0) (layer "F.Fab") (effects (font (size 1 1) (thickness 0.15))))',
@@ -586,9 +586,9 @@ def write_board(libs, nets_of, plan):
                 labels.append((PH_PINS[k - 1], q, layer, along(W_THETA[d])))
     for k in range(1, 9):
         u, v = uv(J6_THETA, j6_pad(k))
-        q = frame(J6_THETA, u + (2.25 if u > J6_U else -2.25), v)
+        q = frame(J6_THETA, u + (1.5 if u > J6_U else -1.5), v)  # along the row, as on the side rows
         for layer in (pcbnew.F_SilkS, pcbnew.B_SilkS):
-            labels.append((PH_PINS[k - 1], q, layer, radial(J6_THETA)))
+            labels.append((PH_PINS[k - 1], q, layer, along(J6_THETA)))
     # The XIAO goes in two 1x7 sockets: turned round it fits as well, so mark which end its USB-C
     # goes (an outline of the USB-C beyond the XIAO's end, and words) and each socket pin's name,
     # between the two sockets, on both sides.
@@ -661,8 +661,8 @@ def row_pad(d, num):
     return add(mul(W_R, e(W_THETA[d])), mul(3.5 * ROW_PITCH - ROW_PITCH * (num - 1), e(W_THETA[d] + 90)))
 
 
-J6_LOCAL = {1: (-3.81, -1.27), 2: (-1.27, -1.27), 3: (1.27, -1.27), 4: (3.81, -1.27),
-            5: (3.81, 1.27), 6: (1.27, 1.27), 7: (-1.27, 1.27), 8: (-3.81, 1.27)}
+# pin k: column (k - 1) // 2 from -x, the -y (outer) row for odd k, the +y (inner) row for even k
+J6_LOCAL = {k: (-3.81 + 2.54 * ((k - 1) // 2), -1.27 if k % 2 else 1.27) for k in range(1, 9)}
 
 
 def j6_pad(num):
@@ -725,16 +725,17 @@ def fixed_wiring():
 
     # J6 through the corner at J6_THETA: the outer row's pads straight out, the inner row's through
     # the gaps between the outer pads
+    # (every inner line to the gap on the same side of its pad, the side that keeps them all inside the block)
     u_out = J6_U + 1.27
+    pads = [(num, name, *uv(J6_THETA, j6_pad(num))) for num, name in header_nets(5).items() if name in RING]
+    inner_v = [v for _, _, u, v in pads if u < J6_U]
+    side = next(sd for sd in (-1.27, 1.27) if all(abs(v + sd) < 3.81 for v in inner_v))
     group = []
-    for num, name in header_nets(5).items():
-        if name not in RING:
-            continue
-        u, v = uv(J6_THETA, j6_pad(num))
+    for num, name, u, v in pads:
         if u > J6_U:
             group.append((v, name, [j6_pad(num)]))
         else:
-            group.append((v - 1.27, name, [j6_pad(num), frame(J6_THETA, J6_U, v - 1.27)]))
+            group.append((v + side, name, [j6_pad(num), frame(J6_THETA, J6_U, v + side)]))
     corner(J6_THETA, u_out, group)
     # the XIAO's bus pins through the corner at XIAO_PSI
     group = []
