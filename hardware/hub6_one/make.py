@@ -10,8 +10,10 @@ It sits 3 mm off the middle toward 342 degrees, clear of the base display's plug
 74HC138 between the sockets, on top, turns three XIAO pins into the six chip selects.
 
 Rev E turns the finished board over (flip_board): the XIAO then plugs from the top (F) into two 5.0 mm sockets
-that JLCPCB places (Hong Cheng HC-PM254-5.0H-1x7PZ, C27985232), upright, USB-C reachable; U1 and its capacitors
-end up on the bottom. The description below is of the board before that flip (F and B as drawn here).
+that JLCPCB places (Hong Cheng HC-PM254-5.0H-1x7PZ, C27985232), upright, USB-C reachable. U1, C2 and C3 are drawn
+on B (ON_B), so after the flip they too are on F, under the XIAO between its sockets: JLCPCB's assembly places one
+side only. The description below is of the board before that flip (F and B as drawn here); U1's own lines stay on
+F.Cu and reach its pads on B through vias beside them (fixed_wiring).
 
 - B.Cu: one ring per shared signal (3V3 innermost, then the five), and inside them the chip
   selects, routed between the XIAO's pins (router.py); GND fills the rest.
@@ -106,8 +108,10 @@ XIAO_NUMBER = {"D0": 1, "D1": 2, "D2": 3, "D3": 4, "D4": 5, "D5": 6, "D6": 7, "D
                "D10": 11, "3V3": 12, "GND": 13, "5V": 14}
 # which XIAO pin carries which signal: the bus from the +x column (in order along it, so the lines
 # to the corner at 162 do not cross), A0..A2 from the -x column level with U1's pins 1..3
+# Rev E: U1 is on B before the flip (on F, beside the sockets, after it), turned over, so its pins 1..8 run the other
+# way along the XIAO (pin 1 at the +y end) and A0..A2 come from D8, D9, D10 (rev D: D10, D9, D8) so the lines do not cross.
 XIAO_NETS = {"D1": "LCD_BL", "D2": "LCD_RST", "D3": "LCD_DC", "D4": "LCD_CLK", "D5": "LCD_DIN",
-             "D10": "LCD_A0", "D9": "LCD_A1", "D8": "LCD_A2", "3V3": "+3V3", "GND": "GND"}
+             "D8": "LCD_A0", "D9": "LCD_A1", "D10": "LCD_A2", "3V3": "+3V3", "GND": "GND"}
 
 
 def xf(lx, ly):
@@ -145,7 +149,10 @@ def header_nets(d):
 # Which output selects which display is the router's choice (route_chip_selects), written to the
 # board; the nets here start without the outputs.
 U1_NETS = {1: "LCD_A0", 2: "LCD_A1", 3: "LCD_A2", 4: "GND", 5: "GND", 6: "+3V3", 8: "GND", 16: "+3V3"}
-CS_OUTPUT = {3: 10, 5: 11, 4: 12, 0: 13, 1: 14, 2: 15}  # display d -> U1 pin (pin 15 - n is Yn); Y6 (pin 9) and Y7 unused
+# display d -> U1 pin (pin 15 - n is Yn); Y6 (pin 9) and Y7 unused. Rev E: each display takes the pin that sits where
+# its rev D pin (3: 10, 5: 11, 4: 12, 0: 13, 1: 14, 2: 15) sat before U1 was turned over (25 - that pin).
+CS_OUTPUT = {3: 15, 5: 14, 4: 13, 0: 12, 1: 11, 2: 10}
+ON_B = ("U1", "C2", "C3")  # placed on B before the flip, so on F (with the sockets: JLCPCB places one side) after it
 
 # --- parts ------------------------------------------------------------------
 # ref: (symbol, value, footprint, LCSC part, pin -> net, placement)
@@ -411,6 +418,35 @@ def load_fp(fp_id):
     return fp
 
 
+def place_part(fp, ref, place):
+    """Put a part (already on a board) at place = (x, y, rotation); the parts of ON_B turned over onto B."""
+    fp.SetPosition(pt(place[:2]))
+    if ref in ON_B:
+        fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+    fp.SetOrientationDegrees(place[2] % 360)
+
+
+_PLACED = {}
+
+
+def placed_pads(ref):
+    """ref's pads where write_board puts them: number -> (centre, shapely polygon of the copper), cup coordinates."""
+    if ref not in _PLACED:
+        from shapely.geometry import Polygon
+        board = pcbnew.BOARD()
+        fp = load_fp(PARTS[ref][2])
+        board.Add(fp)
+        place_part(fp, ref, PARTS[ref][5])
+        out = {}
+        for pad in fp.Pads():
+            layer = pcbnew.B_Cu if ref in ON_B else pcbnew.F_Cu
+            poly = pad.GetEffectivePolygon(layer, pcbnew.ERROR_INSIDE).Outline(0)
+            corners = [cup(poly.CPoint(i)) for i in range(poly.PointCount())]
+            out[int(pad.GetNumber())] = (cup(pad.GetPosition()), Polygon(corners))
+        _PLACED[ref] = out
+    return _PLACED[ref]
+
+
 def place_socket(board, fp, ref):
     """J7 (the D0..D6 column) or J8 on the underside, its pins on the XIAO pins of that column.
     Returns pin number -> XIAO pin name."""
@@ -503,8 +539,7 @@ def write_board(libs, nets_of, plan):
             fp.Value().SetVisible(False)
         else:
             board.Add(fp)
-            fp.SetPosition(pt(place[:2]))
-            fp.SetOrientationDegrees(place[2] % 360)
+            place_part(fp, ref, place)
         if lib_id is None:
             continue
         names = pin_names(libs[lib_id])
@@ -619,7 +654,6 @@ def write_board(libs, nets_of, plan):
 TRACK_W, POWER_W, VIA_D, VIA_DRILL = 0.2, 0.3, 0.6, 0.3
 CLEAR = 0.15
 RING_STEP_DEG = 3.0
-GND_VIAS_U1 = [(-0.8, 0.0), (-0.8, 4.445)]  # under U1's body (its frame): pins 4 and 5 share one, pin 8 the other
 
 
 def row_pad(d, num):
@@ -638,9 +672,15 @@ def j6_pad(num):
 
 
 def u1_pad(num):
-    if num <= 8:
-        return u1_local(-2.475, -4.445 + 1.27 * (num - 1))
-    return u1_local(2.475, 4.445 - 1.27 * (num - 9))
+    return placed_pads("U1")[num][0]
+
+
+def u1_xy(p):
+    """A point in U1's frame (the XIAO's, centred on U1), the inverse of u1_local."""
+    c = u1_local(0.0, 0.0)
+    d = (p[0] - c[0], p[1] - c[1])
+    ex, ey = e(XIAO_PSI), e(XIAO_PSI - 90)
+    return (d[0] * ex[0] + d[1] * ex[1], d[0] * ey[0] + d[1] * ey[1])
 
 
 def uv(theta, p):
@@ -706,33 +746,55 @@ def fixed_wiring():
     # the XIAO's 3V3: straight out, away from the bus, to the 3V3 ring
     v3 = xiao_pad("3V3")
     to_ring("+3V3", [v3], e(XIAO_PSI + 180))
-    # A0..A2 straight to U1's pins 1..3
-    for k, a in enumerate(("D10", "D9", "D8")):
-        lines.append((XIAO_NETS[a], [xiao_pad(a), u1_pad(1 + k)], TRACK_W))
-    # 3V3 past C2 and C3, then up into pin 16, round the pin 1 end; E3 (pin 6) from pin 16 under the body
-    c1 = [cap_pad("C2", 1), cap_pad("C3", 1)]
-    lines.append(("+3V3", [v3, c1[0], c1[1], add(c1[1], mul(uv(XIAO_PSI, u1_pad(16))[0] - uv(XIAO_PSI, c1[1])[0], e(XIAO_PSI))), u1_pad(16)], POWER_W))
-    lines.append(("+3V3", [u1_pad(16), u1_local(0.9, -3.6), u1_local(0.9, 1.6), u1_local(-1.6, 1.905), u1_pad(6)], POWER_W))
-    # GND: U1's pins 4, 5 and 8 to vias under its body; the capacitors' pad 2 to vias beyond
-    a, b = GND_VIAS_U1
-    lines.append(("GND", [u1_pad(4), u1_local(*a), u1_pad(5)], POWER_W))
-    vias.append(("GND", u1_local(*a)))
-    lines.append(("GND", [u1_pad(8), u1_local(*b)], POWER_W))
-    vias.append(("GND", u1_local(*b)))
+    # U1, C2 and C3 sit on B (before the flip), B.Cu being the chip selects' layer: every longer line round them stays
+    # on F.Cu and drops through a via beside the pad, B.Cu having only the short stub from that via into the pad.
+    B = pcbnew.B_Cu
+
+    def stub(name, via_at, pad_at, width):
+        vias.append((name, via_at))
+        lines.append((name, [via_at, pad_at], width, B))
+
+    def along(p, dx):
+        """p moved dx along the XIAO's +x (U1's pins 9..16 side)."""
+        return add(p, mul(dx, e(XIAO_PSI)))
+
+    # pins 1..8 on U1's -x side, 9..16 on its +x side (the outputs face the XIAO's D0..D6 column), pin 1 at the +y end
+    assert u1_xy(u1_pad(1))[0] < 0 < u1_xy(u1_pad(9))[0] and u1_xy(u1_pad(1))[1] > 0 > u1_xy(u1_pad(8))[1]
+    # A0..A2: F.Cu from the XIAO pins to a via just beyond U1's pins 1..3; the order along y is the same at both ends
+    a_pins = {"LCD_A0": 1, "LCD_A1": 2, "LCD_A2": 3}
+    for a, name in XIAO_NETS.items():
+        if name in a_pins:
+            v = along(u1_pad(a_pins[name]), -1.775)
+            lines.append((name, [xiao_pad(a), v], TRACK_W))
+            stub(name, v, u1_pad(a_pins[name]), TRACK_W)
+    # 3V3: from the XIAO's 3V3 pin past C2 and C3 (a via beside each pad 1), then up between U1's rows to pins 16 and 6
+    c1 = []
+    for ref in ("C2", "C3"):
+        p1, p2 = cap_pad(ref, 1), cap_pad(ref, 2)
+        dd = (p1[0] - p2[0], p1[1] - p2[1])
+        c1.append(add(p1, mul(1.1 / math.hypot(*dd), dd)))  # beyond pad 1, toward U1
+    spine_x = u1_xy(c1[1])[0]
+    y6 = u1_xy(u1_pad(6))[1]
+    v16, v6, knee = u1_local(spine_x, 4.1), u1_local(-1.3, y6), u1_local(spine_x, y6)
+    lines.append(("+3V3", [v3, c1[0], c1[1], knee, v16], POWER_W))
+    lines.append(("+3V3", [knee, v6], POWER_W))
+    for v, pad in ((c1[0], cap_pad("C2", 1)), (c1[1], cap_pad("C3", 1)), (v16, u1_pad(16)), (v6, u1_pad(6))):
+        stub("+3V3", v, pad, POWER_W)
+    # GND: U1's pins 4 and 5 to a via under its body, pin 8 to another; the capacitors' pad 2 to vias beyond
+    g45 = u1_local(-0.8, 0.0)
+    vias.append(("GND", g45))
+    lines.append(("GND", [u1_pad(4), g45, u1_pad(5)], POWER_W, B))
+    stub("GND", along(u1_pad(8), 1.675), u1_pad(8), POWER_W)
     for ref in ("C2", "C3"):
         p1, p2 = cap_pad(ref, 1), cap_pad(ref, 2)
         dd = (p2[0] - p1[0], p2[1] - p1[1])
-        n = math.hypot(*dd)
-        v = add(p2, mul(1.05 / n, dd))
-        lines.append(("GND", [p2, v], POWER_W))
-        vias.append(("GND", v))
+        stub("GND", add(p2, mul(1.05 / math.hypot(*dd), dd)), p2, POWER_W)
+    lines = [ln if len(ln) == 4 else ln + (pcbnew.F_Cu,) for ln in lines]
     return lines, vias
 
 
 def cap_pad(ref, num):
-    x, y, rot = PARTS[ref][5]
-    half = 0.95 if ref == "C2" else 0.775
-    return add((x, y), mul(-half if num == 1 else half, e(rot)))
+    return placed_pads(ref)[num][0]
 
 
 def plan_chip_selects():
@@ -740,14 +802,14 @@ def plan_chip_selects():
     from shapely.geometry import LineString, Point
     from router import Router
     lines, vias = fixed_wiring()
-    shapes = [(LineString(pts).buffer(w / 2, 4), n) for n, pts, w in lines] + [(Point(p).buffer(VIA_D / 2, 8), n) for n, p in vias]
+    shapes = [(LineString(pts).buffer(w / 2, 4), n) for n, pts, w, _ in lines] + [(Point(p).buffer(VIA_D / 2, 8), n) for n, p in vias]
     pads = [(row_pad(d, k), 0.85, header_nets(d)[k]) for d in range(5) for k in range(1, 9)]
     pads += [(j6_pad(k), 0.85, header_nets(5)[k]) for k in range(1, 9)]
     # the sockets' pads: 1.7 mm, pin 1 square (its corners reach 0.85 x sqrt 2)
     square = {place_socket(pcbnew.BOARD(), load_fp(SOCKET_FP), ref)[1] for ref in ("J7", "J8")}
     pads += [(xiao_pad(n), 0.85 * (math.sqrt(2) if n in square else 1.0), XIAO_NETS.get(n, n)) for n in XIAO_COL]
     shapes += [(Point(c).buffer(r, 8), n) for c, r, n in pads]
-    y_via = {p: u1_local(Y_VIA_X, 4.445 - 1.27 * (p - 9)) for p in range(9, 16)}
+    y_via = {p: add(u1_pad(p), mul(Y_VIA_X - u1_xy(u1_pad(p))[0], e(XIAO_PSI))) for p in range(9, 16)}  # beside each output, outward
 
     def lanes(d):
         target = row_pad(d, 5)
@@ -774,7 +836,11 @@ def plan_chip_selects():
     # the target pad (J6 pin 5) is not an obstacle for its own path
     j6_cs = j6_pad(5)
     obstacles = [o for o in obstacles if math.dist(o[0], j6_cs) > 1e-6]
-    router = Router(obstacles, waypoints, BCU_LIMIT, TRACK_W, CLEAR)
+    # and what U1, C2 and C3 put on B.Cu: their pads and the stubs into them
+    # (0.02 more than the keep-out: the router draws round them with straight edges)
+    b_shapes = [poly.buffer(keep + 0.02, 4) for ref in ON_B for _, poly in placed_pads(ref).values()]
+    b_shapes += [LineString(pts).buffer(w / 2 + keep + 0.02, 4) for _, pts, w, layer in lines if layer == pcbnew.B_Cu]
+    router = Router(obstacles, waypoints, BCU_LIMIT, TRACK_W, CLEAR, shapes=b_shapes)
     cands = {d: lanes(d) for d in range(5)}
     cands[5] = [j6_cs]
     print("lane candidates:", {d: len(c) for d, c in cands.items()}, flush=True)
@@ -792,6 +858,11 @@ def plan_chip_selects():
         for pin in (CS_OUTPUT[d],):
             for lane in cands[d]:
                 others = [(y_via[q], VIA_D / 2 + keep) for q in range(9, 16) if q != pin]
+                # every other output's B.Cu stub, pad to yv (U1 is on B), as a row of discs: the pins are fixed
+                # (CS_OUTPUT), so the stubs of outputs routed later are in the way too
+                for q in set(CS_OUTPUT.values()) - {pin}:
+                    a, b = u1_pad(q), y_via[q]
+                    others += [(add(a, mul(t / 6, (b[0] - a[0], b[1] - a[1]))), TRACK_W / 2 + keep + 0.02) for t in range(7)]
                 others += [(c["lane"], VIA_D / 2 + keep) for c in chosen.values() if c["lane"] != j6_cs]
                 if d != 5:
                     others.append((j6_cs, 0.85 + keep))
@@ -836,8 +907,8 @@ def route(board, net, plan):
         board.Add(v)
 
     lines, vias = fixed_wiring()
-    for name, pts, w in lines:
-        track(name, pts, width=w)
+    for name, pts, w, layer in lines:
+        track(name, pts, layer=layer, width=w)
     for name, p in vias:
         via(name, p)
     on_ring = {name: [math.degrees(math.atan2(p[1], p[0])) % 360 for n, p in vias if n == name and abs(math.hypot(*p) - RING[name]) < 1e-6]
@@ -846,9 +917,7 @@ def route(board, net, plan):
     for d, pin in plan["output"].items():
         name = f"LCD_CS{d}"
         yv = plan["y_via"][pin]
-        track(name, [u1_pad(pin), yv])
-        via(name, yv)
-        track(name, plan["path"][d], layer=pcbnew.B_Cu)
+        track(name, [u1_pad(pin)] + plan["path"][d], layer=pcbnew.B_Cu)  # U1 is on B: its output pad, past yv, and on
         if d < 5:
             via(name, plan["lane"][d])
             track(name, [plan["lane"][d], row_pad(d, 5)])

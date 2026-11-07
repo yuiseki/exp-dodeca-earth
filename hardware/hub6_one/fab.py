@@ -4,13 +4,11 @@ then copy the three files to upload into fab6/.
 
     /usr/bin/python3 fab.py
 
-Parts with an LCSC number: the XIAO's two sockets J7 and J8 (Hong Cheng
-HC-PM254-5.0H-1x7PZ, C27985232, through hole) on the top side, and U1, C2 and C3
-on the bottom side (the board is drawn for the XIAO hanging under it and then
-turned over, make.py flip_board), so the assembly places both sides. The display
-cables are soldered into bare holes (J1-J6), which have no part; the XIAO plugs
-by hand into the sockets. JLCPCB's rotation for bottom-side parts is not yet
-checked: look at the placement preview before ordering.
+Every part with an LCSC number is on the top side (Economic PCBA places one
+side only): the XIAO's two sockets J7 and J8 (Hong Cheng HC-PM254-5.0H-1x7PZ,
+C27985232, through hole) and, between them under the XIAO, U1, C2 and C3. The
+display cables are soldered into bare holes (J1-J6), which have no part; the XIAO
+plugs by hand into the sockets.
 """
 import csv
 import os
@@ -62,7 +60,6 @@ def main():
             x = pcbnew.ToMM(pos.x - origin.x)
             y = -pcbnew.ToMM(pos.y - origin.y)  # JLCPCB: y up
             rotation = (fp.GetOrientationDegrees() + JLC_ROTATION_OFFSET.get(footprint, 0)) % 360
-            # U1, C2 and C3 are on the bottom side; their rotation on JLCPCB's bottom side is not yet checked
             side = "Bottom" if fp.GetLayer() == pcbnew.B_Cu else "Top"
             w.writerow([fp.GetReference(), f"{x:.3f}mm", f"{y:.3f}mm", side, f"{rotation:.0f}"])
             # One row per LCSC part. JLCPCB merges rows with the same part

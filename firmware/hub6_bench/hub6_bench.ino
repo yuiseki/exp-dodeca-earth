@@ -55,10 +55,17 @@ constexpr int NUM_DISPLAYS = 6;
 constexpr int PIN_DIN = D0, PIN_CLK = D1, PIN_DC = D3, PIN_RST = D4, PIN_BL = D5;
 constexpr int PIN_A0 = D7, PIN_A1 = D8, PIN_A2 = D9;
 constexpr uint8_t ADDRESS[NUM_DISPLAYS] = {0, 1, 2, 3, 5, 4};  // hub6 README
+#elif defined(HUB6_ONE_REV_E)
+// hub6_one rev E: U1 sits beside the sockets on the top side, turned over relative to rev D, so A0..A2 and the
+// outputs run the other way (make.py XIAO_NETS, CS_OUTPUT; test_board_matches_firmware.py checks both)
+constexpr int PIN_DIN = D5, PIN_CLK = D4, PIN_DC = D3, PIN_RST = D2, PIN_BL = D1;
+constexpr int PIN_A0 = D8, PIN_A1 = D9, PIN_A2 = D10;
+constexpr uint8_t ADDRESS[NUM_DISPLAYS] = {3, 4, 5, 0, 2, 1};
 #else
+// hub6_one rev D (the board that was ordered)
 constexpr int PIN_DIN = D5, PIN_CLK = D4, PIN_DC = D3, PIN_RST = D2, PIN_BL = D1;
 constexpr int PIN_A0 = D10, PIN_A1 = D9, PIN_A2 = D8;
-constexpr uint8_t ADDRESS[NUM_DISPLAYS] = {2, 1, 0, 5, 3, 4};  // hub6_one make.py CS_OUTPUT
+constexpr uint8_t ADDRESS[NUM_DISPLAYS] = {2, 1, 0, 5, 3, 4};  // rev D's make.py CS_OUTPUT
 #endif
 constexpr uint8_t NONE = 7;
 const char *const NAME[NUM_DISPLAYS] = {"P1", "P2", "P3", "P4", "P5", "BASE"};
@@ -232,9 +239,9 @@ void select(uint8_t address) {
 }
 
 // ---- microSD (XIAO ESP32-S3 Sense expansion board) ----
-// The card's SCK, MISO and MOSI are D8, D9 and D10, which this board uses as the 74HC138's A2, A1 and A0;
+// The card's SCK, MISO and MOSI are D8, D9 and D10, which this board uses as the 74HC138's address lines;
 // its CS is GPIO21 (the expansion board's R12). So the pins are the card's only while it is being read or
-// written: mount, work, unmount, and give them back as address outputs. While the card talks, the address
+// written: mount, work, unmount, and give them back as address outputs. (On rev D they are A2, A1, A0; on rev E A0, A1, A2.) While the card talks, the address
 // lines wiggle and some display's CS may go low, but the displays' own CLK (D4) and DIN (D5) are idle then,
 // so nothing is clocked into them. The card has its own bus (SPI3); the displays use SPI2.
 constexpr int SD_CS = 21;
@@ -249,7 +256,7 @@ void cardGivePinsBack() {
 void cardTest(long mhz, bool write) {
   if (mhz <= 0) mhz = 10;
   lcd.waitDMA();
-  sdSpi.begin(PIN_A2, PIN_A1, PIN_A0, SD_CS);  // SCK D8, MISO D9, MOSI D10
+  sdSpi.begin(D8, D9, D10, SD_CS);  // SCK, MISO, MOSI: the expansion board's, whichever address line each is
   if (!SD.begin(SD_CS, sdSpi, mhz * 1000000, "/sd", 5)) {
     cardGivePinsBack();
     say("card: mount failed (no card, or no expansion board)");

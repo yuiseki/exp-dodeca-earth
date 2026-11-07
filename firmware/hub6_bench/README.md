@@ -25,7 +25,9 @@ XIAO ESP32-S3 1 枚と 74HC138 で、1.28 インチ丸型 LCD (GC9A01、Waveshar
 cp ../../../exp-cubic-earth/espnow_bridge/secrets.h secrets.h
 ```
 
-テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py` と `g++ -std=c++17 -Wall -Wextra -I. test/test_espnow_cmd.cpp -o /tmp/t && /tmp/t` (`test_wifi_status.cpp` も同じ形で)。
+hub6_one rev E (草案) の基板には `--build-property "compiler.cpp.extra_flags=-DHUB6_ONE_REV_E"` を付けてビルドする。A0〜A2 のピン (D8、D9、D10) と、画面ごとのアドレスが rev D と違う。
+
+テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py test_board_matches_firmware.py` (後者は rev E の表が `hardware/hub6_one/make.py` と一致するか) と `g++ -std=c++17 -Wall -Wextra -I. test/test_espnow_cmd.cpp -o /tmp/t && /tmp/t` (`test_wifi_status.cpp` も同じ形で)。
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3 --output-dir build .

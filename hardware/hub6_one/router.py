@@ -19,12 +19,13 @@ def disc_polygon(c, r):
 
 
 class Router:
-    """obstacles: [(centre, keep-out radius)] fixed for every query; limit: paths stay inside this
-    radius from the origin; extra: optional per-query obstacles (centre, radius), by key."""
+    """obstacles: [(centre, keep-out radius)] fixed for every query; shapes: more fixed obstacles as
+    shapely polygons, their keep-out already included (pads, short tracks); limit: paths stay inside
+    this radius from the origin; extra: optional per-query obstacles (centre, radius), by key."""
 
-    def __init__(self, obstacles, waypoints, limit, width, clear):
+    def __init__(self, obstacles, waypoints, limit, width, clear, shapes=()):
         self.width, self.clear, self.limit = width, clear, limit
-        polys = [disc_polygon(c, r) for c, r in obstacles]
+        polys = [disc_polygon(c, r) for c, r in obstacles] + list(shapes)
         self.static = prep(unary_union(polys).buffer(-1e-4))
         self.nodes = [w for w in waypoints if math.hypot(*w) <= limit]
         for poly in polys:
