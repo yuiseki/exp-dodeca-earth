@@ -5,5 +5,5 @@
 (property "Value" "XIAO" (at 0 0 0) (layer "F.Fab") (hide yes) (effects (font (size 1 1) (thickness 0.15))))
 (fp_rect (start -8.895 -10.572) (end 8.895 10.572) (stroke (width 0.12) (type default)) (fill none) (layer "B.Fab"))
 (fp_rect (start -4.5 -11.873) (end 4.5 -10.572) (stroke (width 0.12) (type default)) (fill none) (layer "B.Fab"))
-(fp_text user "XIAO (under, flat side up)" (at 0 -9.2 0) (layer "B.Fab") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))
+(fp_text user "XIAO (plugged in from the F side)" (at 0 -9.2 0) (layer "B.Fab") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))
 )

@@ -9,6 +9,10 @@ on the underside (the same part as cubic-earth's hub3, soldered by hand), so see
 It sits 3 mm off the middle toward 342 degrees, clear of the base display's plug below. A
 74HC138 between the sockets, on top, turns three XIAO pins into the six chip selects.
 
+Rev E turns the finished board over (flip_board): the XIAO then plugs from the top (F) into two 5.0 mm sockets
+that JLCPCB places (Hong Cheng HC-PM254-5.0H-1x7PZ, C27985232), upright, USB-C reachable; U1 and its capacitors
+end up on the bottom. The description below is of the board before that flip (F and B as drawn here).
+
 - B.Cu: one ring per shared signal (3V3 innermost, then the five), and inside them the chip
   selects, routed between the XIAO's pins (router.py); GND fills the rest.
 - F.Cu: straight lines only, which cross the rings freely: each cable row's radial stubs to its
@@ -72,6 +76,7 @@ def outline_corners():
 DISPLAYS = ["plate 1", "plate 2", "plate 3", "plate 4", "plate 5", "base"]
 W_THETA = (198, 270, 342, 54, 126)  # the side plates; each side row runs along its edge
 W_R = 21.2  # rev D: 22.0
+ZONE_INSET = (A_IN - 0.8) / A_IN  # the GND fill's outline, scaled from the board's
 ROW_PITCH = 2.8  # between a side row's holes (rev D: 2.54). 3.0 and more make the stubs and vias of neighbouring holes touch
 
 # The display's PH2.0 pins, 1 to 8 (Waveshare 1.28inch LCD Module); wire n goes into hole n.
@@ -162,13 +167,14 @@ for _d in range(5):
                            (*mul(W_R, e(W_THETA[_d])), (W_THETA[_d] + 90) % 360))
 PARTS["J6"] = (f"{LIB}:Cable_8P", DISPLAYS[5], BASE_FP, "", header_nets(5), (*mul(J6_U, e(J6_THETA)), J6_THETA - 90))
 PARTS.update({
-    # The XIAO itself plugs in by hand: on the schematic only. It hangs under the board, flat side up,
-    # its pin headers in two 1x7 female sockets (8.5 mm) on the underside: J7 the D0..D6 column, J8
+    # The XIAO itself plugs in by hand: on the schematic only. Before the flip it hangs under the board, flat side up,
+    # its pin headers in two 1x7 female sockets on the underside (rev E: 5.0 mm, and F after the flip): J7 the D0..D6 column, J8
     # the other (each socket's pins take the nets of the XIAO pins they hold, place_sockets).
     "U2": (f"{LIB}:XIAO_ESP32S3", "XIAO ESP32S3", "", "", {XIAO_NUMBER[k]: v for k, v in XIAO_NETS.items()}, None),
-    # soldered by hand (XFCN PM254V-11-07-H85, LCSC C2832270 as on cubic-earth's hub3): not in the BOM
-    "J7": (f"{LIB}:Socket_1x07", "XIAO D0-D6", SOCKET_FP, "", None, "socket"),
-    "J8": (f"{LIB}:Socket_1x07", "XIAO 5V-D7", SOCKET_FP, "", None, "socket"),
+    # Hong Cheng HC-PM254-5.0H-1x7PZ (LCSC C27985232): 5.0 mm tall (cubic-earth's hub3 has 8.5 mm), square holes,
+    # 0.64 x 0.40 pins, 1.02 mm holes like hub3's XFCN PM254V-11-07-H85 (C2832270); JLCPCB places them (through hole, top side).
+    "J7": (f"{LIB}:Socket_1x07", "XIAO D0-D6", SOCKET_FP, "C27985232", None, "socket"),
+    "J8": (f"{LIB}:Socket_1x07", "XIAO 5V-D7", SOCKET_FP, "C27985232", None, "socket"),
     "X1": (None, "XIAO", XIAO_FP, "", {}, (*xf(XIAO_X, XIAO_Y), XIAO_PSI)),
     "U1": (f"{LIB}:74HC138", "74HC138", "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm", "C2674688", U1_NETS, (*xf(XIAO_X, U1_Y), XIAO_PSI)),
     # bulk for the six displays (about 190mA) on the 3V3 line from the XIAO, and U1's decoupling
@@ -320,7 +326,7 @@ def write_footprints():
              '(property "Value" "XIAO" (at 0 0 0) (layer "F.Fab") (hide yes) (effects (font (size 1 1) (thickness 0.15))))',
              f'(fp_rect (start {-XIAO_W / 2:.3f} {-XIAO_L / 2:.3f}) (end {XIAO_W / 2:.3f} {XIAO_L / 2:.3f}) (stroke (width 0.12) (type default)) (fill none) (layer "B.Fab"))',
              f'(fp_rect (start -4.5 {-XIAO_L / 2 - 1.3:.3f}) (end 4.5 {-XIAO_L / 2:.3f}) (stroke (width 0.12) (type default)) (fill none) (layer "B.Fab"))',
-             '(fp_text user "XIAO (under, flat side up)" (at 0 -9.2 0) (layer "B.Fab") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))']
+             '(fp_text user "XIAO (plugged in from the F side)" (at 0 -9.2 0) (layer "B.Fab") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))']
     lines.append(")")
     with open(os.path.join(pretty, "XIAO_ESP32S3_Hanging.kicad_mod"), "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -436,6 +442,24 @@ def socket_nets(ref):
     return {k: XIAO_NETS.get(n) for k, n in place_socket(pcbnew.BOARD(), fp, ref).items()}
 
 
+def flip_board(board):
+    """Turn the finished board over about its vertical axis (the 90 / 270 degree line, which maps the pentagon
+    onto itself and keeps J6 under the base display's plug): every item is mirrored and moved to the other layer.
+    Everything above was drawn for the XIAO hanging under the board, its sockets on B; flipped, the XIAO plugs
+    into the sockets on F, upright, USB-C reachable, as the rev D board was used turned over. U1 and its capacitors
+    move to B (under the XIAO's sockets' side, facing the base display). Nets, clearances and the wiring are kept:
+    a mirror image of a clean board is clean."""
+    axis = pcbnew.VECTOR2I(mm(ORIGIN[0]), 0)
+    for fp in board.GetFootprints():
+        fp.Flip(axis, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+    for t in board.GetTracks():
+        t.Flip(axis, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+    for d in board.GetDrawings():
+        d.Flip(axis, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+    for z in board.Zones():
+        z.Flip(axis, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+
+
 def write_board(libs, nets_of, plan):
     board = pcbnew.BOARD()
     board.SetCopperLayerCount(2)
@@ -477,7 +501,6 @@ def write_board(libs, nets_of, plan):
         if place == "socket":
             place_socket(board, fp, ref)
             fp.Value().SetVisible(False)
-            fp.SetAttributes(fp.GetAttributes() | pcbnew.FP_EXCLUDE_FROM_BOM | pcbnew.FP_EXCLUDE_FROM_POS_FILES)
         else:
             board.Add(fp)
             fp.SetPosition(pt(place[:2]))
@@ -490,6 +513,11 @@ def write_board(libs, nets_of, plan):
             if num:
                 # the schematic names an unconnected pin's net after the pin
                 pad.SetNet(net(nets_of[ref].get(int(num)) or unconnected_net(ref, num, names.get(num))))
+                if ref in ("J1", "J2", "J3", "J4", "J5"):
+                    # No fill connection on the rows' holes: the GND hole (2) has its own track to a via into the inner fill,
+                    # and a hole joined to the fill on both sides is hard to solder by hand. The thermal spokes this
+                    # replaces ran into copper slivers between neighbouring holes (DRC starved_thermal) once the board was flipped.
+                    pad.SetLocalZoneConnection(pcbnew.ZONE_CONNECTION_NONE)
 
     for a, b in zip(corners, corners[1:] + corners[:1]):
         seg = pcbnew.PCB_SHAPE(board)
@@ -559,14 +587,14 @@ def write_board(libs, nets_of, plan):
     route(board, net, plan)
 
     # GND fills both layers round everything else; thermal spokes on the hand-soldered holes
-    for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
+    for layer in (pcbnew.B_Cu, pcbnew.F_Cu):  # F.Cu second: it is the layer that was B.Cu before the flip
         zone = pcbnew.ZONE(board)
         zone.SetLayer(layer)
         zone.SetNet(net("GND"))
         outline = zone.Outline()
         outline.NewOutline()
         for c in corners:
-            p = pt(c)
+            p = pt(mul(ZONE_INSET, c))  # a little inside the edge: no copper slivers between the rows' pads and the edge
             outline.Append(p.x, p.y)
         zone.SetLocalClearance(mm(0.3))
         zone.SetMinThickness(mm(0.2))
@@ -575,6 +603,12 @@ def write_board(libs, nets_of, plan):
         zone.SetThermalReliefSpokeWidth(mm(0.4))
         zone.SetIslandRemovalMode(pcbnew.ISLAND_REMOVAL_MODE_ALWAYS)
         board.Add(zone)
+    flip_board(board)
+    board.BuildConnectivity()
+    # filled twice: the first fill keeps the outer GND fragments on the layer that was B.Cu before the flip (they hold only
+    # the rows' GND pads); the second, now that the pads' other side is filled, drops them as islands, as the unflipped board did
+    pcbnew.ZONE_FILLER(board).Fill(board.Zones())
+    board.BuildConnectivity()
     pcbnew.ZONE_FILLER(board).Fill(board.Zones())
     board.Save(os.path.join(HERE, f"{NAME}.kicad_pcb"))
 
