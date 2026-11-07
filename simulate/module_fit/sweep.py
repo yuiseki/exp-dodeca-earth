@@ -1,6 +1,9 @@
 """Every combination of how the modules can sit, and the smallest dodecahedron for each.
 
-    ../../.venv/bin/python sweep.py [OUT_DIR] [WORKERS]     # default ../../tmp/simulate, 4 workers
+    ../../.venv/bin/python sweep.py [OUT_DIR] [WORKERS] [contain]     # default ../../tmp/simulate, 4 workers
+
+With `contain`, a combination also needs each module's outline (the PCB with its bump, seen square to the face) to stay
+inside its own face's pentagon: nothing overhangs the face.
 
 Varies:
 - side: the side displays' bump, as an angle in the face from the direction of the rim vertex (0 = toward the equator,
@@ -69,11 +72,16 @@ def set_height(h):
     fit.GROWN = [(p.buffer(fit.CLEAR), h0 - fit.CLEAR, h1 + fit.CLEAR) for p, h0, h1 in fit.LAYERS]
 
 
+CONTAIN = False
+
+
 def fits(L, side_deg, base_kind, s_side, s_base):
     fr = frames(L, side_deg, base_kind, s_side, s_base)
     from shapely.geometry import Point
     for f in range(12):
         pl = fit.plate(L, f, fr)
+        if CONTAIN and not pl.contains(fit.BASE_LAYERS[0][0]):
+            return False, "overhang"
         if not all(pl.buffer(-fit.HOLE_KEEP).contains(Point(p)) for p in fit.HOLES):
             return False, "holes"
         if not pl.buffer(-0.8).contains(fit.SLOT):
@@ -132,12 +140,19 @@ def picture(out_dir, side_deg, base_kind, h, L, shifts):
     return path
 
 
+def _set_contain(v):
+    global CONTAIN
+    CONTAIN = v
+
+
 def main():
     out_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../tmp/simulate")
     workers = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+    global CONTAIN
+    CONTAIN = len(sys.argv) > 3 and sys.argv[3] == "contain"
     os.makedirs(out_dir, exist_ok=True)
     combos = list(itertools.product(SIDE, BASE, HEIGHT))
-    with Pool(workers) as pool:
+    with Pool(workers, initializer=_set_contain, initargs=(CONTAIN,)) as pool:
         rows = pool.map(smallest, combos, chunksize=1)
     with open(os.path.join(out_dir, "results.csv"), "w", newline="") as f:
         w = csv.writer(f)
