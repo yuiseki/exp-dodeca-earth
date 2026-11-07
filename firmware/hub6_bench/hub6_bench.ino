@@ -10,6 +10,8 @@
 // Serial (USB, 115200):
 //   i        identity (the default): each display shows its name, its 74HC138 address and a colour, and stays
 //   e        earth: each display shows its part of the globe (earth_faces.h), and stays
+//   j [name] the six faces from the web, WEB_BASE/<name>-P1.jpg .. -BASE.jpg (make_earth_faces.py --jpeg-dir;
+//            name upper by default), kept in PSRAM until e or a restart; needs Wi-Fi and the PSRAM=opi build
 //   b        benchmark: full-screen fills on all six in turn, frames/s printed
 //   c [MHz]  microSD of the Sense expansion board: type, size, the root's listing; reads only
 //   cw [MHz] the same, then writes /dodeca_test.bin (115200 bytes), reads it back, removes it, and times it
@@ -40,8 +42,15 @@
 
 #include "espnow_cmd.h"
 #include "wifi_status.h"
+#include "web_face.h"
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <JPEGDEC.h>
 #if __has_include("secrets.h")
 #include "secrets.h"  // WIFI_APS (secrets.h.example; not in git)
+#endif
+#ifndef WEB_BASE
+#define WEB_BASE "https://z.yuiseki.net/static/tmp/dodeca-earth"  // where j fetches <name>-P1.jpg .. -BASE.jpg
 #endif
 #ifndef ESPNOW_CHANNEL
 #define ESPNOW_CHANNEL 1  // with no AP joined, as espnow_bridge
@@ -334,14 +343,19 @@ void showIdentity() {
 
 // The faces live in flash, which the SPI DMA cannot read: copy them a line at a time into RAM and
 // send each line from there (plain RGB565 values, so swap = true in LovyanGFX's terms).
+// Faces fetched by j (PSRAM, 240 x 240 RGB565 as in earth_faces.h), drawn instead of the built-in ones while webOn
+uint16_t *webFace[NUM_DISPLAYS] = {};
+bool webOn = false;
+
 void drawEarth(int d) {
   static uint16_t line[240];
+  const uint16_t *src = webOn && webFace[d] ? webFace[d] : EARTH_FACES[d];
   {
     select(ADDRESS[d]);
     lcd.startWrite();
     lcd.setAddrWindow(0, 0, 240, 240);
     for (int y = 0; y < 240; y++) {
-      memcpy(line, &EARTH_FACES[d][y * 240], sizeof line);
+      memcpy(line, &src[y * 240], sizeof line);
       lcd.writePixels(line, 240, true);
     }
     lcd.endWrite();
@@ -351,7 +365,89 @@ void drawEarth(int d) {
 
 void showEarth() {
   for (int d = 0; d < NUM_DISPLAYS; d++) drawEarth(d);
-  say("earth");
+  say(webOn ? "earth (web)" : "earth");
+}
+
+// ---- j: faces from the web (as exp-cubic-earth's #j) ----
+static uint16_t *jpegOut = nullptr;  // one face being decoded (PSRAM)
+int jpegDraw(JPEGDRAW *dr) {
+  for (int y = 0; y < dr->iHeight; y++) {
+    int yy = dr->y + y;
+    if (yy < 0 || yy >= 240) continue;
+    for (int x = 0; x < dr->iWidth; x++) {
+      int xx = dr->x + x;
+      if (xx >= 0 && xx < 240) jpegOut[yy * 240 + xx] = dr->pPixels[y * dr->iWidth + x];
+    }
+  }
+  return 1;
+}
+
+// GET url into PSRAM and decode it into dst (240 x 240). Returns the JPEG's size, or -1 (and says why).
+int fetchFace(const char *url, uint16_t *dst) {
+  static const size_t MAX_JPEG = 128 * 1024;
+  static uint8_t *jpg = nullptr;
+  if (!jpg) jpg = (uint8_t *)ps_malloc(MAX_JPEG);
+  if (!jpegOut) jpegOut = (uint16_t *)ps_malloc(240 * 240 * 2);
+  if (!jpg || !jpegOut) { say("j: no PSRAM (build with PSRAM=opi)"); return -1; }
+  WiFiClientSecure tls;
+  tls.setInsecure();  // the certificate is not checked: these are pictures to look at
+  WiFiClient plain;
+  HTTPClient http;
+  bool https = strncmp(url, "https:", 6) == 0;
+  if (!(https ? http.begin(tls, url) : http.begin(plain, url))) { say("j: bad url %s", url); return -1; }
+  int code = http.GET();
+  if (code != 200) { say("j: %s -> HTTP %d", url, code); http.end(); return -1; }
+  int len = http.getSize();  // -1: chunked, read until the server closes
+  if (len > (int)MAX_JPEG) { say("j: %s is %d bytes (max %u)", url, len, (unsigned)MAX_JPEG); http.end(); return -1; }
+  int want = len > 0 ? len : (int)MAX_JPEG, got = 0;
+  NetworkClient *st = http.getStreamPtr();
+  uint32_t t0 = millis();
+  while (got < want && millis() - t0 < 20000 && (http.connected() || st->available())) {
+    int a = st->available();
+    if (a > 0) got += st->readBytes(jpg + got, min(a, want - got));
+    else delay(2);
+  }
+  http.end();
+  if ((len > 0 && got != len) || (len <= 0 && got >= (int)MAX_JPEG)) { say("j: %s got %d of %d bytes", url, got, len); return -1; }
+  static JPEGDEC dec;
+  if (!dec.openRAM(jpg, got, jpegDraw)) { say("j: %s is not a JPEG it can decode", url); return -1; }
+  if (dec.getWidth() != 240 || dec.getHeight() != 240) {
+    say("j: %s is %dx%d, needs 240x240", url, dec.getWidth(), dec.getHeight());
+    dec.close();
+    return -1;
+  }
+  dec.setPixelType(RGB565_LITTLE_ENDIAN);  // as earth_faces.h holds them
+  bool ok = dec.decode(0, 0, 0);
+  dec.close();
+  if (!ok) { say("j: %s decode failed", url); return -1; }
+  memcpy(dst, jpegOut, 240 * 240 * 2);
+  return got;
+}
+
+// All six or none: a face that fails leaves every display as it was.
+void fetchWebEarth(const char *name) {
+  if (WiFi.status() != WL_CONNECTED) { say("j: not on Wi-Fi (w)"); return; }
+  static uint16_t *next[NUM_DISPLAYS] = {};
+  for (int d = 0; d < NUM_DISPLAYS; d++) {
+    if (!next[d]) next[d] = (uint16_t *)ps_malloc(240 * 240 * 2);
+    if (!webFace[d]) webFace[d] = (uint16_t *)ps_malloc(240 * 240 * 2);
+    if (!next[d] || !webFace[d]) { say("j: no PSRAM (build with PSRAM=opi)"); return; }
+  }
+  uint32_t t0 = millis();
+  int bytes = 0;
+  for (int d = 0; d < NUM_DISPLAYS; d++) {
+    char url[192];
+    if (!faceUrl(url, sizeof url, WEB_BASE, name, NAME[d], (unsigned long)millis())) { say("j: bad name or url too long"); return; }
+    int n = fetchFace(url, next[d]);
+    if (n < 0) return;
+    bytes += n;
+  }
+  uint32_t t1 = millis();
+  for (int d = 0; d < NUM_DISPLAYS; d++) memcpy(webFace[d], next[d], 240 * 240 * 2);
+  webOn = true;
+  mode = EARTH;
+  for (int d = 0; d < NUM_DISPLAYS; d++) drawEarth(d);
+  say("earth (web %s): %d bytes, fetch and decode %lu ms, draw %lu ms", name, bytes, (unsigned long)(t1 - t0), (unsigned long)(millis() - t1));
 }
 
 void setup() {
@@ -413,7 +509,12 @@ void handleLine(const char *buf) {
   {
     if (buf[0] == 'e') {
       mode = EARTH;
+      webOn = false;  // the built-in faces again
       showEarth();
+    } else if (buf[0] == 'j') {
+      const char *name = buf + 1;
+      while (*name == ' ') name++;
+      fetchWebEarth(*name ? name : "upper");
     } else if (buf[0] == 'i') {
       mode = IDENTITY;
       showIdentity();

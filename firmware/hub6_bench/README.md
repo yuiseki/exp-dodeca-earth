@@ -27,11 +27,11 @@ cp ../../../exp-cubic-earth/espnow_bridge/secrets.h secrets.h
 
 hub6_one rev E (草案) の基板には `--build-property "compiler.cpp.extra_flags=-DHUB6_ONE_REV_E"` を付けてビルドする。A0〜A2 のピン (D8、D9、D10) と、画面ごとのアドレスが rev D と違う。
 
-テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py test_board_matches_firmware.py` (後者は rev E の表が `hardware/hub6_one/make.py` と一致するか) と `g++ -std=c++17 -Wall -Wextra -I. test/test_espnow_cmd.cpp -o /tmp/t && /tmp/t` (`test_wifi_status.cpp` も同じ形で)。
+テストは `../../.venv/bin/python -m pytest -q test_make_earth_faces.py test_board_matches_firmware.py` (後者は rev E の表が `hardware/hub6_one/make.py` と一致するか) と `g++ -std=c++17 -Wall -Wextra -I. test/test_espnow_cmd.cpp -o /tmp/t && /tmp/t` (`test_wifi_status.cpp`、`test_web_face.cpp` も同じ形で)。ビルドには PSRAM (`PSRAM=opi`) と、ライブラリ JPEGDEC (`arduino-cli lib install JPEGDEC`) が要る (`j` が PSRAM に 6 面を置き、JPEG を展開する)。
 
 ```sh
-arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3 --output-dir build .
-arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32S3 --input-dir build -p /dev/ttyACM0   # ポートは arduino-cli board list で
+arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi --output-dir build .
+arduino-cli upload --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi --input-dir build -p /dev/ttyACM0   # ポートは arduino-cli board list で
 ```
 
 ブレッドボード用は、compile に `--build-property "compiler.cpp.extra_flags=-DHUB6_BREADBOARD"` を足す。
@@ -61,6 +61,15 @@ AP につながらないあいだも、Wi-Fi は裏でつなぎ直そうとし�
 カードの SCK、MISO、MOSI は D8、D9、D10 で、お椀の基板では 74HC138 の A2、A1、A0 と同じピン。CS だけ GPIO21 (拡張基板の R12)。四角い地球 (exp-cubic-earth) はこの 3 本を LT7680 と SPI のまま共有できるが、お椀ではアドレス線なので、カードに触るあいだだけ SPI に切り替え、終わったらアドレス出力に戻す (`cardTest`)。カードの通信中はアドレスが動いて、どれかの画面の CS が下がるが、画面の CLK (D4) と DIN (D5) は止まっているので何も書き込まれない、という見立て。カードは SPI3 (HSPI)、画面は SPI2。
 
 カードなしで `c` を送ると `mount failed` が返り、そのあとも画面の命令は普通に通る (2026-11-07)。カードを入れると読み書きできた: 29.5GB の SDHC、115200 バイト (画面 1 枚ぶん) の書き込み 139 ms と読み 126 ms (10MHz)、90 ms と 79 ms (20MHz)、化けは 0 バイト。そのあとの `e` も通った (画面の見た目は未確認)。
+
+## Web の地球 (`j`)
+
+exp-cubic-earth の `#j` と同じく、Web サーバーに置いた JPEG を Wi-Fi で取って描く。microSD は要らない。
+
+- 母艦で 6 面の JPEG を作る: `../../.venv/bin/python make_earth_faces.py <正距円筒図法の画像> --jpeg-dir <置き場> --name upper`。1 面 240 x 240、ベースライン JPEG (JPEGDEC はプログレッシブを展開しない)。並びは `earth_faces.h` と同じ (`--board`、`--cup`、`--fit` も同じ意味)
+- 置き場の URL を `WEB_BASE` に (既定は exp-cubic-earth と同じ母艦の静的ファイルの下の `dodeca-earth`)。毎回 `?t=` を付けて取るので、前段のキャッシュが古い画像を返さない
+- 1 面あたり 12〜30 KB。6 面で 145 KB を、取得と展開に約 3.9 秒、描くのに 0.3 秒 (HTTPS、pi5-w-1 経由、2026-11-07)
+- その日の衛星画像 (NASA GIBS の VIIRS) は、軌道の隙間と極夜が黒く抜ける。黒いところをブルーマーブルで埋めてから切り出すと、面が真っ黒にならない
 
 ## hub6_one の割り当て
 
@@ -154,6 +163,7 @@ XIAO の D2、D6、D10 は使わない。
 | `b` | 塗りつぶしの試験 |
 | `c 10` | Sense の拡張基板の microSD を読む (種類、大きさ、根の一覧)。書き込みはしない。カードがなければ `card: mount failed`。MHz は省くと 10 |
 | `cw 20` | 上に加えて、`/dodeca_test.bin` (115200 バイト、画面 1 枚ぶん) を書いて読み返し、消して、速さを測る。他の用途のカードには使わない |
+| `j upper` | Web の 6 面を取って描く (`WEB_BASE/<名前>-P1.jpg` 〜 `-BASE.jpg`、名前を省くと upper)。6 面とも取れたときだけ描き替え、1 面でも失敗したら前のまま。取った面は PSRAM に置き、`e` か再起動で焼き込みの地球に戻る。Wi-Fi が要る |
 | `w` | 無線の状態を 1 行で返す。AP につながっていれば AP の名前、チャンネル、受信の強さ (rssi)、IP。つながっていなければ、いまのチャンネルと、ファームが合わせようとしたチャンネル (`ESPNOW_CHANNEL`)。どちらも起動からの秒数つき |
 | `f 20` | SPI のクロックを 20MHz にする (80、40、27、20、16、10 から選ぶ)。保存して再起動する。既定は 20MHz (ブレッドボードで 6 枚が安定した上限) |
 

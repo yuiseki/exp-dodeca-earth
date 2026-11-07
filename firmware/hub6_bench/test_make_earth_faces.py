@@ -3,6 +3,7 @@
     ../../.venv/bin/python -m pytest -q test_make_earth_faces.py
 """
 import math
+import os
 
 import numpy as np
 import pytest
@@ -112,3 +113,26 @@ def test_hub6_one_neighbours_still_meet_at_the_edge():
     ring = [("P1", "P2"), ("P2", "P3"), ("P3", "P4"), ("P4", "P5"), ("P5", "P1")]
     for a, b in ring:
         assert angle(normal(place[a]), normal(place[b])) == pytest.approx(2 * mef.EDGE_ANGLE, abs=0.1)
+
+
+def test_render_faces_gives_six_round_faces():
+    img = np.zeros((90, 180, 3), np.uint8)
+    img[..., 0] = 200  # all red: the faces are red inside the circle, black outside
+    faces = mef.render_faces(img, board="hub6_one", cup="upper", fit="edge", face="P2", lon=139.77)
+    assert list(faces) == mef.NAMES
+    for rgb in faces.values():
+        assert rgb.shape == (N, N, 3)
+        assert rgb[N // 2, N // 2, 0] == 200 and tuple(rgb[0, 0]) == (0, 0, 0)
+
+
+def test_write_jpegs_names_and_sizes(tmp_path):
+    from PIL import Image
+    faces = {name: np.full((N, N, 3), 40 * k, np.uint8) for k, name in enumerate(mef.NAMES)}
+    paths = mef.write_jpegs(faces, str(tmp_path), "upper")
+    assert [os.path.basename(p) for p in paths] == [f"upper-{n}.jpg" for n in mef.NAMES]
+    for k, p in enumerate(paths):
+        im = Image.open(p)
+        assert im.format == "JPEG" and im.size == (N, N) and im.mode == "RGB"
+        # baseline (not progressive): JPEGDEC on the XIAO decodes baseline only
+        assert not im.info.get("progressive") and not im.info.get("progression")
+        assert abs(int(np.asarray(im)[N // 2, N // 2, 0]) - 40 * k) <= 3
