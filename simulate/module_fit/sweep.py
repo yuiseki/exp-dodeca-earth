@@ -7,8 +7,8 @@ inside its own face's pentagon: nothing overhangs the face.
 
 Varies:
 - side: the side displays' bump, as an angle in the face from the direction of the rim vertex (0 = toward the equator,
-  180 = toward the edge shared with the base, the pole), in 12 degree steps; vertices are at 0, 72, 144 and edges
-  at 36, 108, 180.
+  180 = toward the edge shared with the base, the pole). A 12 degree sweep (2026-11-07) found nothing worth the odd
+  turn in between, so only these two.
   Left and right turns are mirror images, so 0..180 covers them;
 - base: the base display's bump toward an edge or a vertex;
 - height: how far the module sits above its plate's outer face, relative to now (PCB back on the face): -1.6 sinks the
@@ -27,8 +27,8 @@ import numpy as np
 
 import fit
 
-SIDE = list(range(0, 181, 12))
-PICTURE_SIDE = [0, 36, 72, 108, 144, 180]
+SIDE = [0, 180]  # toward the equator (the rim vertex) or the pole (the edge on the base); turns in between were no use
+PICTURE_SIDE = SIDE
 BASE = ["edge", "vertex"]
 HEIGHT = [-1.6, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
 PICTURE_HEIGHT = [-1.6, 0.0, 1.0, 2.0, 3.0, 4.0]
