@@ -11,6 +11,7 @@
 //   i        identity (the default): each display shows its name, its 74HC138 address and a colour, and stays
 //   e        earth: each display shows its part of the globe (earth_faces.h), and stays
 //   b        benchmark: full-screen fills on all six in turn, frames/s printed
+//   c [MHz]  microSD of the Sense expansion board: type, size, a 115200-byte write and read back, speed (card.h notes)
 //   w        wifi: the AP, channel, rssi and address, or the channel the radio is on without one (wifi_status.h)
 //   f <MHz>  SPI clock for the next boot (80, 40, 27, 20, 16, 10), saved, then restarts
 //   r <d>    send display d (0 = P1 .. 5 = BASE) its init sequence again and redraw it, the others untouched
@@ -29,6 +30,8 @@
 #include <M5GFX.h>
 #include <lgfx/v1/panel/Panel_GC9A01.hpp>
 #include <Preferences.h>
+#include <SD.h>
+#include <SPI.h>
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -227,6 +230,67 @@ void select(uint8_t address) {
   lcd.panel.forgetWindow();
 }
 
+// ---- microSD (XIAO ESP32-S3 Sense expansion board) ----
+// The card's SCK, MISO and MOSI are D8, D9 and D10, which this board uses as the 74HC138's A2, A1 and A0;
+// its CS is GPIO21 (the expansion board's R12). So the pins are the card's only while it is being read or
+// written: mount, work, unmount, and give them back as address outputs. While the card talks, the address
+// lines wiggle and some display's CS may go low, but the displays' own CLK (D4) and DIN (D5) are idle then,
+// so nothing is clocked into them. The card has its own bus (SPI3); the displays use SPI2.
+constexpr int SD_CS = 21;
+SPIClass sdSpi(HSPI);
+
+void cardGivePinsBack() {
+  sdSpi.end();
+  for (int pin : {PIN_A0, PIN_A1, PIN_A2}) pinMode(pin, OUTPUT);
+  select(NONE);
+}
+
+void cardTest(long mhz) {
+  if (mhz <= 0) mhz = 10;
+  lcd.waitDMA();
+  sdSpi.begin(PIN_A2, PIN_A1, PIN_A0, SD_CS);  // SCK D8, MISO D9, MOSI D10
+  if (!SD.begin(SD_CS, sdSpi, mhz * 1000000, "/sd", 5)) {
+    cardGivePinsBack();
+    say("card: mount failed (no card, or no expansion board)");
+    return;
+  }
+  static const char *types[] = {"none", "MMC", "SD", "SDHC", "unknown"};
+  uint8_t t = SD.cardType();
+  say("card: %s, %llu MB, used %llu / %llu MB, SPI %ld MHz", types[t < 4 ? t : 4], SD.cardSize() >> 20, SD.usedBytes() >> 20,
+      SD.totalBytes() >> 20, mhz);
+  const size_t N = 240 * 240 * 2, CH = 4096;  // one display's face
+  static uint8_t buf[CH];
+  File f = SD.open("/dodeca_test.bin", FILE_WRITE);
+  if (!f) {
+    SD.end();
+    cardGivePinsBack();
+    say("card: open for write failed");
+    return;
+  }
+  uint32_t t0 = millis();
+  for (size_t i = 0; i < N; i += CH) {
+    size_t n = N - i < CH ? N - i : CH;
+    for (size_t j = 0; j < n; j++) buf[j] = (uint8_t)((i + j) * 7 + ((i + j) >> 9));
+    f.write(buf, n);
+  }
+  f.close();
+  uint32_t t1 = millis();
+  f = SD.open("/dodeca_test.bin");
+  size_t bad = 0, got = 0;
+  for (size_t i = 0; i < N; i += CH) {
+    size_t r = f.read(buf, N - i < CH ? N - i : CH);
+    got += r;
+    for (size_t j = 0; j < r; j++) bad += buf[j] != (uint8_t)((i + j) * 7 + ((i + j) >> 9));
+  }
+  f.close();
+  uint32_t t2 = millis();
+  SD.remove("/dodeca_test.bin");
+  SD.end();
+  cardGivePinsBack();
+  say("card: wrote %u bytes in %lu ms, read %u in %lu ms, %u bad bytes%s", (unsigned)N, (unsigned long)(t1 - t0), (unsigned)got,
+      (unsigned long)(t2 - t1), (unsigned)bad, got == N ? "" : " (short read)");
+}
+
 void drawIdentity(int d) {
   select(ADDRESS[d]);
   lcd.startWrite();
@@ -335,6 +399,8 @@ void handleLine(const char *buf) {
     } else if (buf[0] == 'i') {
       mode = IDENTITY;
       showIdentity();
+    } else if (buf[0] == 'c') {
+      cardTest(atoi(buf + 1));
     } else if (buf[0] == 'w') {
       uint8_t ch = 0;
       wifi_second_chan_t ch2;
