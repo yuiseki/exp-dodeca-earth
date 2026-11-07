@@ -1,0 +1,21 @@
+plate (counter-clockwise seen from above, cup standing on its base),pocket (seen from the inner face with the apex up),pole facing the joint
+1,apex edge right side,N
+1,apex edge left side,N
+1,right corner,S
+1,left corner,N
+2,apex edge right side,N
+2,apex edge left side,N
+2,right corner,N
+2,left corner,N
+3,apex edge right side,S
+3,apex edge left side,N
+3,right corner,S
+3,left corner,S
+4,apex edge right side,N
+4,apex edge left side,S
+4,right corner,N
+4,left corner,S
+5,apex edge right side,S
+5,apex edge left side,S
+5,right corner,S
+5,left corner,S
