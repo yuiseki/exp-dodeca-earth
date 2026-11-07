@@ -72,6 +72,7 @@ def outline_corners():
 DISPLAYS = ["plate 1", "plate 2", "plate 3", "plate 4", "plate 5", "base"]
 W_THETA = (198, 270, 342, 54, 126)  # the side plates; each side row runs along its edge
 W_R = 21.2  # rev D: 22.0
+ROW_PITCH = 2.8  # between a side row's holes (rev D: 2.54). 3.0 and more make the stubs and vias of neighbouring holes touch
 
 # The display's PH2.0 pins, 1 to 8 (Waveshare 1.28inch LCD Module); wire n goes into hole n.
 # VCC must be 3.3V: the module's TXB0108 level shifter takes its header-side logic levels
@@ -144,7 +145,7 @@ CS_OUTPUT = {3: 10, 5: 11, 4: 12, 0: 13, 1: 14, 2: 15}  # display d -> U1 pin (p
 # --- parts ------------------------------------------------------------------
 # ref: (symbol, value, footprint, LCSC part, pin -> net, placement)
 # placement: (x, y, rotation) in cup coordinates (rotation counter-clockwise, as KiCad's).
-SIDE_ROW_FP = f"{LIB}:Wire_1x08_P2.54"  # the side displays' rows (rev D had two slots for a cable tie; hot glue holds the cable now)
+SIDE_ROW_FP = f"{LIB}:Wire_1x08_P2.80"  # the side displays' rows (rev D had two slots for a cable tie; hot glue holds the cable now)
 BASE_FP = f"{LIB}:Wire_2x04_P2.54"
 XIAO_FP = f"{LIB}:XIAO_ESP32S3_Hanging"  # its outline only (board only, no pads)
 SOCKET_FP = "Connector_PinSocket_2.54mm:PinSocket_1x07_P2.54mm_Vertical"
@@ -274,25 +275,25 @@ def write_symbol_lib(symbols):
 def write_footprints():
     pretty = os.path.join(HERE, f"{LIB}.pretty")
     os.makedirs(pretty, exist_ok=True)
-    for old in ("Wire_1x08_P2.54_Tie.kicad_mod", "XIAO_ESP32S3_Outline.kicad_mod"):
+    for old in ("Wire_1x08_P2.54_Tie.kicad_mod", "Wire_1x08_P2.54.kicad_mod", "XIAO_ESP32S3_Outline.kicad_mod"):
         if os.path.exists(os.path.join(pretty, old)):
             os.remove(os.path.join(pretty, old))
     # A row of eight holes for a display cable's bare wires (26 AWG stranded, about 0.5mm of
-    # copper), soldered straight in: 1.0mm drills in 1.7mm pads, 2.54 apart so the insulation
+    # copper), soldered straight in: 1.0mm drills in 1.7mm pads, ROW_PITCH apart so the insulation
     # (about 1.2mm) sits side by side. Pin 1 at +x, marked on the silkscreen (round pads all:
     # a square pad's corners would reach the stubs beside it). No cable-tie slots (rev D had two,
     # 1.3 x 2.9, beyond the row's ends: they kept the edge 26 mm out); hot glue holds the cable.
-    lines = ['(footprint "Wire_1x08_P2.54" (version 20240108) (generator "make.py") (layer "F.Cu")',
+    lines = ['(footprint "Wire_1x08_P2.80" (version 20240108) (generator "make.py") (layer "F.Cu")',
              '(descr "Eight holes for a cable\'s bare 26 AWG wires, soldered in")',
              '(attr through_hole exclude_from_pos_files exclude_from_bom)',
              '(property "Reference" "REF**" (at 0 -2.2 0) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))',
              '(property "Value" "Cable_8P" (at 0 2.2 0) (layer "F.Fab") (effects (font (size 1 1) (thickness 0.15))))',
-             '(fp_rect (start -9.85 -0.95) (end 9.85 0.95) (stroke (width 0.05) (type default)) (fill none) (layer "F.CrtYd"))',
-             '(fp_text user "1" (at 10.5 0 0) (layer "F.SilkS") (effects (font (size 0.8 0.8) (thickness 0.12))))']
+             f'(fp_rect (start -{3.5 * ROW_PITCH + 0.96:.2f} -0.95) (end {3.5 * ROW_PITCH + 0.96:.2f} 0.95) (stroke (width 0.05) (type default)) (fill none) (layer "F.CrtYd"))',
+             f'(fp_text user "1" (at {3.5 * ROW_PITCH + 1.9:.2f} 0 0) (layer "F.SilkS") (effects (font (size 0.8 0.8) (thickness 0.12))))']
     for p in range(1, 9):
-        lines.append(f'(pad "{p}" thru_hole circle (at {8.89 - 2.54 * (p - 1):.2f} 0) (size 1.7 1.7) (drill 1.0) (layers "*.Cu" "*.Mask") (remove_unused_layers no))')
+        lines.append(f'(pad "{p}" thru_hole circle (at {3.5 * ROW_PITCH - ROW_PITCH * (p - 1):.2f} 0) (size 1.7 1.7) (drill 1.0) (layers "*.Cu" "*.Mask") (remove_unused_layers no))')
     lines.append(")")
-    with open(os.path.join(pretty, "Wire_1x08_P2.54.kicad_mod"), "w") as f:
+    with open(os.path.join(pretty, "Wire_1x08_P2.80.kicad_mod"), "w") as f:
         f.write("\n".join(lines) + "\n")
     # The base display's cable in a 2x4 block of the same holes, numbered like a DIP-8: 1-4 along
     # the -y row from -x, 5-8 back along the +y row (8 behind 1). Pin 1 marked on the silkscreen.
@@ -589,7 +590,7 @@ GND_VIAS_U1 = [(-0.8, 0.0), (-0.8, 4.445)]  # under U1's body (its frame): pins 
 
 def row_pad(d, num):
     """Cup coordinates of pad num of side row d (pin 1 counter-clockwise)."""
-    return add(mul(W_R, e(W_THETA[d])), mul(8.89 - 2.54 * (num - 1), e(W_THETA[d] + 90)))
+    return add(mul(W_R, e(W_THETA[d])), mul(3.5 * ROW_PITCH - ROW_PITCH * (num - 1), e(W_THETA[d] + 90)))
 
 
 J6_LOCAL = {1: (-3.81, -1.27), 2: (-1.27, -1.27), 3: (1.27, -1.27), 4: (3.81, -1.27),
