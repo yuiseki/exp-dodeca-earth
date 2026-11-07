@@ -11,7 +11,8 @@
 //   i        identity (the default): each display shows its name, its 74HC138 address and a colour, and stays
 //   e        earth: each display shows its part of the globe (earth_faces.h), and stays
 //   b        benchmark: full-screen fills on all six in turn, frames/s printed
-//   c [MHz]  microSD of the Sense expansion board: type, size, a 115200-byte write and read back, speed (card.h notes)
+//   c [MHz]  microSD of the Sense expansion board: type, size, the root's listing; reads only
+//   cw [MHz] the same, then writes /dodeca_test.bin (115200 bytes), reads it back, removes it, and times it
 //   w        wifi: the AP, channel, rssi and address, or the channel the radio is on without one (wifi_status.h)
 //   f <MHz>  SPI clock for the next boot (80, 40, 27, 20, 16, 10), saved, then restarts
 //   r <d>    send display d (0 = P1 .. 5 = BASE) its init sequence again and redraw it, the others untouched
@@ -245,7 +246,7 @@ void cardGivePinsBack() {
   select(NONE);
 }
 
-void cardTest(long mhz) {
+void cardTest(long mhz, bool write) {
   if (mhz <= 0) mhz = 10;
   lcd.waitDMA();
   sdSpi.begin(PIN_A2, PIN_A1, PIN_A0, SD_CS);  // SCK D8, MISO D9, MOSI D10
@@ -258,6 +259,16 @@ void cardTest(long mhz) {
   uint8_t t = SD.cardType();
   say("card: %s, %llu MB, used %llu / %llu MB, SPI %ld MHz", types[t < 4 ? t : 4], SD.cardSize() >> 20, SD.usedBytes() >> 20,
       SD.totalBytes() >> 20, mhz);
+  if (!write) {  // read only: the root's listing, nothing written (the card may be someone else's)
+    File root = SD.open("/");
+    int n = 0;
+    for (File e = root.openNextFile(); e && n < 8; e = root.openNextFile(), n++)
+      say("card: /%s%s %u", e.name(), e.isDirectory() ? "/" : "", (unsigned)e.size());
+    root.close();
+    SD.end();
+    cardGivePinsBack();
+    return;
+  }
   const size_t N = 240 * 240 * 2, CH = 4096;  // one display's face
   static uint8_t buf[CH];
   File f = SD.open("/dodeca_test.bin", FILE_WRITE);
@@ -400,7 +411,8 @@ void handleLine(const char *buf) {
       mode = IDENTITY;
       showIdentity();
     } else if (buf[0] == 'c') {
-      cardTest(atoi(buf + 1));
+      bool w = buf[1] == 'w';  // "cw": also write and read back a test file
+      cardTest(atoi(buf + (w ? 2 : 1)), w);
     } else if (buf[0] == 'w') {
       uint8_t ch = 0;
       wifi_second_chan_t ch2;
