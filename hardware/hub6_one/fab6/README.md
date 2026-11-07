@@ -15,6 +15,8 @@ hub6_one の、JLCPCB にアップロードするファイル。`/usr/bin/python
 
 発注の前に確かめること:
 
+- 見積もりの PCB の仕様: 表面処理は鉛フリー HASL にする。OSP だと経済 PCBA が選べず、標準 PCBA (設定料金とステンシルで約 $34 増し) に回される (2026-11-07。経済 PCBA の色と表面処理の組み合わせは https://jlcpcb.com/jp/capabilities/pcb-assembly-capabilities )
+
 - 部品配置の確認画面で、U1 の向き (1 番ピンの印の位置)。SOIC-16 の JLCPCB 上の向きは、cubic-earth の hub3 で確かめた補正 (`fab.py` の `JLC_ROTATION_OFFSET`、-90 度) を使っているが、この基板では未確認
 - U1 (C2674688) の在庫と値段。手元の部品の DB は 7 月の版
 - 部品配置の確認画面で、ソケット J7、J8 (挿入部品) が基板の穴に合っているか、U1 の向き (1 番ピンの印。rev D とは 180 度違う向きに置いている)
