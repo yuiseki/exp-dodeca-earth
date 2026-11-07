@@ -31,10 +31,10 @@ import pcbnew
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME = "hub6_one"
-REV = "D (draft)"
+REV = "E (draft)"
 LIB = "dodecahedron-earth"
 KICAD = "/usr/share/kicad"
-A_IN = 26.0  # pentagon: centre to the middle of an edge, mm
+A_IN = 22.4  # pentagon: centre to the middle of an edge, mm (rev D: 26.0; the wall narrows 0.5 mm per mm of depth, so each mm less sinks the board 2 mm)
 R_CIRC = A_IN / math.cos(math.radians(36))
 ORIGIN = (100.0 + R_CIRC, 100.0 + R_CIRC)  # the board's centre on the PCB sheet
 
@@ -71,7 +71,7 @@ def outline_corners():
 # goes to J(d+1); its chip select is net LCD_CS(d).
 DISPLAYS = ["plate 1", "plate 2", "plate 3", "plate 4", "plate 5", "base"]
 W_THETA = (198, 270, 342, 54, 126)  # the side plates; each side row runs along its edge
-W_R = 22.0
+W_R = 21.2  # rev D: 22.0
 
 # The display's PH2.0 pins, 1 to 8 (Waveshare 1.28inch LCD Module); wire n goes into hole n.
 # VCC must be 3.3V: the module's TXB0108 level shifter takes its header-side logic levels
@@ -80,7 +80,7 @@ W_R = 22.0
 PH_PINS = ["VCC", "GND", "DIN", "CLK", "CS", "DC", "RST", "BL"]
 BUS_PIN = {"LCD_DIN": 3, "LCD_CLK": 4, "LCD_DC": 6, "LCD_RST": 7, "LCD_BL": 8}
 # B.Cu rings, centre to the track's centre line. Nothing on B.Cu crosses them, so any order works.
-RING = {"+3V3": 16.8, "LCD_DIN": 17.6, "LCD_CLK": 18.4, "LCD_DC": 19.2, "LCD_RST": 20.0, "LCD_BL": 20.8}
+RING = {"+3V3": 16.8, "LCD_DIN": 17.5, "LCD_CLK": 18.1, "LCD_DC": 18.7, "LCD_RST": 19.3, "LCD_BL": 19.9}  # rev D: 0.8 apart to 20.8; 0.55 apart breaks the 0.15 clearance at the vias
 RING_W = {"+3V3": 0.4}
 GND_VIA_R = 15.9  # each side row's GND pin also reaches the inner GND fill by a via here
 CS_ENTRY_R = 15.5  # each side row's chip select runs radially in to here, then to the chip
@@ -144,7 +144,7 @@ CS_OUTPUT = {3: 10, 5: 11, 4: 12, 0: 13, 1: 14, 2: 15}  # display d -> U1 pin (p
 # --- parts ------------------------------------------------------------------
 # ref: (symbol, value, footprint, LCSC part, pin -> net, placement)
 # placement: (x, y, rotation) in cup coordinates (rotation counter-clockwise, as KiCad's).
-SIDE_ROW_FP = f"{LIB}:Wire_1x08_P2.54_Tie"  # the side displays' rows, with two slots for a cable tie
+SIDE_ROW_FP = f"{LIB}:Wire_1x08_P2.54"  # the side displays' rows (rev D had two slots for a cable tie; hot glue holds the cable now)
 BASE_FP = f"{LIB}:Wire_2x04_P2.54"
 XIAO_FP = f"{LIB}:XIAO_ESP32S3_Hanging"  # its outline only (board only, no pads)
 SOCKET_FP = "Connector_PinSocket_2.54mm:PinSocket_1x07_P2.54mm_Vertical"
@@ -274,16 +274,16 @@ def write_symbol_lib(symbols):
 def write_footprints():
     pretty = os.path.join(HERE, f"{LIB}.pretty")
     os.makedirs(pretty, exist_ok=True)
-    for old in ("Wire_1x08_P2.54.kicad_mod", "XIAO_ESP32S3_Outline.kicad_mod"):
+    for old in ("Wire_1x08_P2.54_Tie.kicad_mod", "XIAO_ESP32S3_Outline.kicad_mod"):
         if os.path.exists(os.path.join(pretty, old)):
             os.remove(os.path.join(pretty, old))
     # A row of eight holes for a display cable's bare wires (26 AWG stranded, about 0.5mm of
     # copper), soldered straight in: 1.0mm drills in 1.7mm pads, 2.54 apart so the insulation
     # (about 1.2mm) sits side by side. Pin 1 at +x, marked on the silkscreen (round pads all:
-    # a square pad's corners would reach the stubs beside it). Two 1.3 x 2.9 slots, 2.0 outward
-    # (+y) and beyond the row's ends, for a 2.5mm cable tie that holds the cable down.
-    lines = ['(footprint "Wire_1x08_P2.54_Tie" (version 20240108) (generator "make.py") (layer "F.Cu")',
-             '(descr "Eight holes for a cable\'s bare 26 AWG wires, soldered in, with two slots for a cable tie")',
+    # a square pad's corners would reach the stubs beside it). No cable-tie slots (rev D had two,
+    # 1.3 x 2.9, beyond the row's ends: they kept the edge 26 mm out); hot glue holds the cable.
+    lines = ['(footprint "Wire_1x08_P2.54" (version 20240108) (generator "make.py") (layer "F.Cu")',
+             '(descr "Eight holes for a cable\'s bare 26 AWG wires, soldered in")',
              '(attr through_hole exclude_from_pos_files exclude_from_bom)',
              '(property "Reference" "REF**" (at 0 -2.2 0) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))',
              '(property "Value" "Cable_8P" (at 0 2.2 0) (layer "F.Fab") (effects (font (size 1 1) (thickness 0.15))))',
@@ -291,10 +291,8 @@ def write_footprints():
              '(fp_text user "1" (at 10.5 0 0) (layer "F.SilkS") (effects (font (size 0.8 0.8) (thickness 0.12))))']
     for p in range(1, 9):
         lines.append(f'(pad "{p}" thru_hole circle (at {8.89 - 2.54 * (p - 1):.2f} 0) (size 1.7 1.7) (drill 1.0) (layers "*.Cu" "*.Mask") (remove_unused_layers no))')
-    for x in (-10.9, 10.9):
-        lines.append(f'(pad "" np_thru_hole oval (at {x:.2f} 2.0 90) (size 2.9 1.3) (drill oval 2.9 1.3) (layers "*.Cu" "*.Mask"))')
     lines.append(")")
-    with open(os.path.join(pretty, "Wire_1x08_P2.54_Tie.kicad_mod"), "w") as f:
+    with open(os.path.join(pretty, "Wire_1x08_P2.54.kicad_mod"), "w") as f:
         f.write("\n".join(lines) + "\n")
     # The base display's cable in a 2x4 block of the same holes, numbered like a DIP-8: 1-4 along
     # the -y row from -x, 5-8 back along the +y row (8 behind 1). Pin 1 marked on the silkscreen.
@@ -506,8 +504,8 @@ def write_board(libs, nets_of, plan):
         a = (theta + 90) % 360
         return a - 180 if 90 < a <= 270 else a
     short = ["P1", "P2", "P3", "P4", "P5", "BASE"]
-    labels = [(short[d], mul(W_R - 2.0, e(W_THETA[d])), pcbnew.F_SilkS, along(W_THETA[d])) for d in range(5)]
-    labels += [(f"J{d + 1} {DISPLAYS[d]}", mul(W_R - 2.0, e(W_THETA[d])), pcbnew.B_SilkS, along(W_THETA[d])) for d in range(5)]
+    labels = [(short[d], mul(W_R - 3.6, e(W_THETA[d])), pcbnew.F_SilkS, along(W_THETA[d])) for d in range(5)]
+    labels += [(f"J{d + 1} {DISPLAYS[d]}", mul(W_R - 3.6, e(W_THETA[d])), pcbnew.B_SilkS, along(W_THETA[d])) for d in range(5)]
     labels += [("BASE", frame(J6_THETA, J6_U, -6.6), pcbnew.F_SilkS, along(J6_THETA + 90)),
                ("J6 base", frame(J6_THETA, J6_U, -6.6), pcbnew.B_SilkS, along(J6_THETA + 90)),
                (f"hub6_one rev {REV}", mul(13.5, e(18)), pcbnew.B_SilkS, along(18))]
@@ -519,9 +517,9 @@ def write_board(libs, nets_of, plan):
         return a - 180 if 90 < a <= 270 else a
     for d in range(5):
         for k in range(1, 9):
-            q = add(row_pad(d, k), mul(2.25, e(W_THETA[d])))
+            q = add(row_pad(d, k), mul(-1.5, e(W_THETA[d])))  # inside the row, over the rings (masked copper), reading along the row
             for layer in (pcbnew.F_SilkS, pcbnew.B_SilkS):
-                labels.append((PH_PINS[k - 1], q, layer, radial(W_THETA[d])))
+                labels.append((PH_PINS[k - 1], q, layer, along(W_THETA[d])))
     for k in range(1, 9):
         u, v = uv(J6_THETA, j6_pad(k))
         q = frame(J6_THETA, u + (2.25 if u > J6_U else -2.25), v)
