@@ -1,0 +1,9 @@
+{
+ "variant": "a",
+ "edge_mm": 27.625,
+ "raise_mm": 2.0,
+ "side_shift_mm": 0.0,
+ "pole_shift_mm": 0.0,
+ "side_bump": "toward the rim vertex (equator)",
+ "pole_bump": "toward a vertex"
+}
